@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 import pyomo.environ as pyo
 from pyomo.common.errors import ApplicationError
 from pyomo.common.tee import capture_output
@@ -24,21 +27,55 @@ def build_model(data):
     return m
 
 
+def _solve_capturing(m):
+    """Run the solver and return (results, log_text). Captures GLPK's
+    subprocess stdout via two mechanisms (FD-level redirect + logfile=)
+    so we get output reliably across platforms."""
+    fd, log_path = tempfile.mkstemp(suffix=".glpk.log")
+    os.close(fd)
+    log_text = ""
+    try:
+        try:
+            # capture_fd=True intercepts at the OS file-descriptor level,
+            # which catches subprocess output (the GLPK binary) on Linux
+            # where it would otherwise bypass Python's sys.stdout.
+            with capture_output(capture_fd=True) as buf:
+                solver = pyo.SolverFactory("glpk")
+                results = solver.solve(m, tee=True, logfile=log_path)
+            log_text = buf.getvalue()
+        except TypeError:
+            # Older Pyomo versions don't accept capture_fd=. Fall back to
+            # the default (sys.stdout redirect only) plus the logfile.
+            with capture_output() as buf:
+                solver = pyo.SolverFactory("glpk")
+                results = solver.solve(m, tee=True, logfile=log_path)
+            log_text = buf.getvalue()
+
+        # If the FD/stdout capture didn't yield anything, fall back to the
+        # logfile that Pyomo wrote to.
+        if not log_text.strip():
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    log_text = f.read()
+            except OSError:
+                pass
+    finally:
+        try:
+            os.remove(log_path)
+        except OSError:
+            pass
+
+    return results, log_text
+
+
 def solve(data):
     if not data["foods"]:
         return {"status": "no_foods", "x": {}, "cost": None, "log": ""}
 
     m = build_model(data)
 
-    # capture_output() catches everything written to stdout/stderr -- including
-    # subprocess output from the GLPK binary -- into a StringIO buffer that we
-    # can read back. tee=True asks Pyomo to stream the solver chatter; the
-    # context manager intercepts it instead of letting it reach the terminal.
     try:
-        with capture_output() as buf:
-            solver = pyo.SolverFactory("glpk")
-            results = solver.solve(m, tee=True)
-        log = buf.getvalue()
+        results, log = _solve_capturing(m)
     except ApplicationError as e:
         return {
             "status": "solver_missing",
