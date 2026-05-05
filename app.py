@@ -276,6 +276,19 @@ def render_formulation_tab():
     st.latex(build_instance_latex(data))
 
 
+def render_logs_tab():
+    st.subheader("GLPK solver output")
+    optimal = st.session_state.optimal
+    if not optimal:
+        st.info("Run the optimizer to see solver logs.")
+        return
+    log = optimal.get("log", "") or ""
+    if not log.strip():
+        st.info("No solver output captured for the last run.")
+        return
+    st.code(log, language="text")
+
+
 def render_optimizer_tab():
     data = st.session_state.data
     if not data["foods"]:
@@ -417,10 +430,14 @@ def render_optimizer_tab():
 st.set_page_config(page_title="Diet LP Optimizer", layout="wide")
 init_state()
 st.title("Diet LP Optimizer")
-optimizer_tab, data_tab, formulation_tab = st.tabs(["Optimizer", "Data", "Formulation"])
+optimizer_tab, data_tab, formulation_tab, logs_tab = st.tabs(
+    ["Optimizer", "Data", "Formulation", "Logs"]
+)
 with optimizer_tab:
     render_optimizer_tab()
 with data_tab:
     render_data_tab()
 with formulation_tab:
     render_formulation_tab()
+with logs_tab:
+    render_logs_tab()

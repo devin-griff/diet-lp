@@ -1,6 +1,7 @@
 import pyomo.environ as pyo
-from pyomo.opt import TerminationCondition
 from pyomo.common.errors import ApplicationError
+from pyomo.common.tee import capture_output
+from pyomo.opt import TerminationCondition
 
 
 def build_model(data):
@@ -25,12 +26,19 @@ def build_model(data):
 
 def solve(data):
     if not data["foods"]:
-        return {"status": "no_foods", "x": {}, "cost": None}
+        return {"status": "no_foods", "x": {}, "cost": None, "log": ""}
 
     m = build_model(data)
+
+    # capture_output() catches everything written to stdout/stderr -- including
+    # subprocess output from the GLPK binary -- into a StringIO buffer that we
+    # can read back. tee=True asks Pyomo to stream the solver chatter; the
+    # context manager intercepts it instead of letting it reach the terminal.
     try:
-        solver = pyo.SolverFactory("glpk")
-        results = solver.solve(m, tee=False)
+        with capture_output() as buf:
+            solver = pyo.SolverFactory("glpk")
+            results = solver.solve(m, tee=True)
+        log = buf.getvalue()
     except ApplicationError as e:
         return {
             "status": "solver_missing",
@@ -41,18 +49,19 @@ def solve(data):
             ),
             "x": {},
             "cost": None,
+            "log": "",
         }
 
     tc = results.solver.termination_condition
     if tc == TerminationCondition.optimal:
         x = {f: float(pyo.value(m.eaten[f])) for f in data["foods"]}
         cost = float(pyo.value(m.cost))
-        return {"status": "optimal", "x": x, "cost": cost}
+        return {"status": "optimal", "x": x, "cost": cost, "log": log}
     if tc in (
         TerminationCondition.infeasible,
         TerminationCondition.infeasibleOrUnbounded,
     ):
-        return {"status": "infeasible", "x": {}, "cost": None}
+        return {"status": "infeasible", "x": {}, "cost": None, "log": log}
     if tc == TerminationCondition.unbounded:
-        return {"status": "unbounded", "x": {}, "cost": None}
-    return {"status": str(tc), "x": {}, "cost": None}
+        return {"status": "unbounded", "x": {}, "cost": None, "log": log}
+    return {"status": str(tc), "x": {}, "cost": None, "log": log}
