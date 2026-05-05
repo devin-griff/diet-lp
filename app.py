@@ -277,7 +277,6 @@ def render_formulation_tab():
 
 
 def render_logs_tab():
-    st.subheader("GLPK solver output")
     optimal = st.session_state.optimal
     if not optimal:
         st.info("Run the optimizer to see solver logs.")
@@ -431,7 +430,7 @@ st.set_page_config(page_title="Diet LP Optimizer", layout="wide")
 init_state()
 st.title("Diet LP Optimizer")
 optimizer_tab, data_tab, formulation_tab, logs_tab = st.tabs(
-    ["Optimizer", "Data", "Formulation", "Logs"]
+    ["🎯 Optimizer", "📋 Data", "📐 Formulation", "📜 Logs"]
 )
 with optimizer_tab:
     render_optimizer_tab()
