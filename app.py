@@ -248,22 +248,22 @@ def render_formulation_tab():
 
     st.markdown("**Sets**")
     st.markdown(r"$\mathcal{F} = \{\text{foods}\}$")
-    st.markdown(r"$\mathcal{N} = \{P, C, F, V\}$")
+    st.markdown(r"$\mathcal{N} = \{\text{nutrients}\}$")
 
     st.markdown("**Parameters**")
-    st.markdown(r"$\pi_i$ — price for food option $i \in \mathcal{F}$")
-    st.markdown(r"$r_j$ — nutrition requirement for nutrient $j \in \mathcal{N}$")
-    st.markdown(r"$D_{ij}$ — nutrition info for food $i \in \mathcal{F}$ and nutrient $j \in \mathcal{N}$")
+    st.markdown(r"$p_i$ price for food option $i \in \mathcal{F}$")
+    st.markdown(r"$r_j$ nutrition requirement for nutrient $j \in \mathcal{N}$")
+    st.markdown(r"$D_{ij}$ nutrition info for food $i \in \mathcal{F}$ and nutrient $j \in \mathcal{N}$")
 
     st.markdown("**Variables**")
-    st.markdown(r"$x_i$ — amount of food $i \in \mathcal{F}$ eaten or purchased")
+    st.markdown(r"$x_i$ amount of food $i \in \mathcal{F}$ eaten or purchased")
 
     st.markdown("**Objective and Constraints**")
     st.latex(r"""
     \begin{gathered}
-    \min_x \sum_{i \in \mathcal{F}} x_i \pi_i \quad \text{(cost)} \\
-    \text{s.t.} \quad \sum_{i \in \mathcal{F}} D_{ij} x_i \ge r_j \quad \forall j \in \mathcal{N} \quad \text{(be healthy)} \\
-    x_i \ge 0 \quad \forall i \in \mathcal{F} \quad \text{(bounds)}
+    \min_x \sum_{i \in \mathcal{F}} x_i p_i \quad \text{(cost)} \\
+    \text{s.t.} \quad \sum_{i \in \mathcal{F}} D_{ij} x_i \ge r_j \quad \forall j \in \mathcal{N} \quad \text{(nutrient minimums)} \\
+    x_i \ge 0 \quad \forall i \in \mathcal{F} \quad \text{(lower bounds)}
     \end{gathered}
     """)
 
