@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.ipynb
+.git/
+.gitignore
+.venv/
+venv/
+README.md
+fly.toml
