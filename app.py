@@ -497,29 +497,51 @@ def render_data_tab():
 def render_formulation_tab():
     # Static reference math at the top, dynamic instance math at the bottom.
     # `st.markdown` with `$...$` renders inline LaTeX; `st.latex` renders a
-    # display-style block.
+    # display-style block. The general section is split across a 3-column
+    # grid: the left column stacks Sets/Parameters/Variables (each as a
+    # single markdown block so items stack tightly with no inter-paragraph
+    # margin), the middle column holds the centered objective + constraints,
+    # and the right column is empty padding so the equation lands at the
+    # page midline rather than the right half.
     st.subheader("General Formulation")
+    left, right, _ = st.columns([1, 1, 1])
+    with left:
+        st.markdown(
+            "**Sets**  \n"
+            r"$\mathcal{F} = \{\text{foods}\}$" "  \n"
+            r"$\mathcal{N} = \{\text{nutrients}\}$"
+        )
+        st.markdown(
+            "**Parameters**  \n"
+            r"$p_i$ price for food option $i \in \mathcal{F}$" "  \n"
+            r"$r_j$ nutrition requirement for nutrient $j \in \mathcal{N}$" "  \n"
+            r"$D_{ij}$ nutrition info for food $i \in \mathcal{F}$ and nutrient $j \in \mathcal{N}$"
+        )
+        st.markdown(
+            "**Variables**  \n"
+            r"$x_i$ amount of food $i \in \mathcal{F}$ eaten or purchased"
+        )
+    with right:
+        # Title + display math in one centered block. Using `$$...$$` inside
+        # st.markdown (rather than st.latex in its own component) lets us wrap
+        # both in a single text-align:center div so the equation lines up
+        # under the centered title.
+        st.markdown(
+            r"""<div style="text-align: center;">
 
-    st.markdown("**Sets**")
-    st.markdown(r"$\mathcal{F} = \{\text{foods}\}$")
-    st.markdown(r"$\mathcal{N} = \{\text{nutrients}\}$")
+**Objective and Constraints**
 
-    st.markdown("**Parameters**")
-    st.markdown(r"$p_i$ price for food option $i \in \mathcal{F}$")
-    st.markdown(r"$r_j$ nutrition requirement for nutrient $j \in \mathcal{N}$")
-    st.markdown(r"$D_{ij}$ nutrition info for food $i \in \mathcal{F}$ and nutrient $j \in \mathcal{N}$")
+$$
+\begin{gathered}
+\min_x \sum_{i \in \mathcal{F}} x_i p_i \quad \text{(cost)} \\
+\text{s.t.} \quad \sum_{i \in \mathcal{F}} D_{ij} x_i \ge r_j \quad \forall j \in \mathcal{N} \quad \text{(nutrient minimums)} \\
+x_i \ge 0 \quad \forall i \in \mathcal{F} \quad \text{(lower bounds)}
+\end{gathered}
+$$
 
-    st.markdown("**Variables**")
-    st.markdown(r"$x_i$ amount of food $i \in \mathcal{F}$ eaten or purchased")
-
-    st.markdown("**Objective and Constraints**")
-    st.latex(r"""
-    \begin{gathered}
-    \min_x \sum_{i \in \mathcal{F}} x_i p_i \quad \text{(cost)} \\
-    \text{s.t.} \quad \sum_{i \in \mathcal{F}} D_{ij} x_i \ge r_j \quad \forall j \in \mathcal{N} \quad \text{(nutrient minimums)} \\
-    x_i \ge 0 \quad \forall i \in \mathcal{F} \quad \text{(lower bounds)}
-    \end{gathered}
-    """)
+</div>""",
+            unsafe_allow_html=True,
+        )
 
     st.divider()
     st.subheader("Instance Formulation")
@@ -599,8 +621,20 @@ def render_optimizer_tab():
             preserved = max(0.0, min(existing, ub))
             if existing != preserved:
                 st.session_state[key] = preserved
+            # Slider label includes price plus per-unit nutrient content for
+            # the food, so the user can reason about each food's tradeoff
+            # without flipping to the Data tab.
+            nutrient_parts = [
+                f"{NUTRIENT_LABELS.get(n, n).lower()} {data['content'][(f, n)]:g}"
+                for n in data["nutrients"]
+            ]
+            label_str = (
+                f"{f}  (price {data['price'][f]:g}, "
+                + ", ".join(nutrient_parts)
+                + ")"
+            )
             st.slider(
-                f"{f}  (price {data['price'][f]:g})",
+                label_str,
                 min_value=0.0,
                 max_value=float(ub),
                 value=preserved,
@@ -724,7 +758,37 @@ st.set_page_config(page_title="Diet LP Optimizer", layout="wide")
 
 # Initialize session_state defaults and apply any pending reset.
 init_state()
-st.title("Diet LP Optimizer")
+
+# Tighten the top of the main block so the title sits closer to the page top
+# and the tabs are visible without scrolling. The minimum here is determined
+# by Streamlit's sticky header (~3.75rem); going smaller hides the title
+# underneath it.
+st.markdown(
+    """
+    <style>
+    .block-container,
+    [data-testid="stMainBlockContainer"] {
+      padding-top: 4rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<h2 style='margin: 0 0 0.25rem 0; padding: 0; font-size: 1.5rem; font-weight: 700;'>"
+    "Diet LP Optimizer"
+    "</h2>",
+    unsafe_allow_html=True,
+)
+_caption_col, _ = st.columns([1, 1])
+with _caption_col:
+    st.markdown(
+        "Try to beat the optimizer: pick food quantities in the **Optimizer** tab "
+        "to meet every nutrient minimum at the lowest cost you can, then click "
+        "**Run Optimizer** to compare against the solver's cheapest feasible diet. Edit "
+        "foods, prices, and nutrient requirements in the **Data** tab; the "
+        "**Formulation** and **Logs** tabs show the underlying LP and solver output."
+    )
 
 # `st.tabs` returns one container per label, used as a context manager to
 # scope subsequent `st.*` calls into that tab.
