@@ -774,6 +774,34 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+# Home link: clicking the Griffith PSE logo navigates back to the portfolio
+# site. Same-tab navigation since the user is leaving the demo. Pinned to
+# the upper-left corner of the page via position:fixed so it stays visible
+# while scrolling. Image is loaded from griffith-pse.com so a single
+# CDN-served copy is the source of truth across all apps.
+st.markdown(
+    """
+    <style>
+    .home-logo-corner {
+        position: fixed;
+        top: 0.5rem;
+        left: 0.75rem;
+        z-index: 999999;
+    }
+    .home-logo-corner img {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        display: block;
+    }
+    </style>
+    <a href="https://griffith-pse.com" target="_self" class="home-logo-corner">
+      <img src="https://griffith-pse.com/images/favicon.png"
+           alt="Griffith PSE — home" />
+    </a>
+    """,
+    unsafe_allow_html=True,
+)
 st.markdown(
     "<h2 style='margin: 0 0 0.25rem 0; padding: 0; font-size: 1.5rem; font-weight: 700;'>"
     "Diet LP Optimizer"
