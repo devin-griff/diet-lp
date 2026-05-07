@@ -754,7 +754,7 @@ def render_optimizer_tab():
 
 # `set_page_config` must be the first Streamlit call; "wide" layout gives
 # the two-column optimizer enough horizontal room.
-st.set_page_config(page_title="Diet LP Optimizer", layout="wide")
+st.set_page_config(page_title="Diet LP Optimizer", page_icon="favicon.png", layout="wide")
 
 # Initialize session_state defaults and apply any pending reset.
 init_state()
