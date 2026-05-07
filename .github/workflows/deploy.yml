@@ -10,6 +10,12 @@ on:
   # Lets you trigger a deploy manually from the Actions tab without a code change.
   workflow_dispatch:
 
+# Opt JavaScript actions (e.g. actions/checkout) into Node 24 ahead of GitHub's
+# forced switch on June 2 2026. Without this, the runner prints a deprecation
+# warning every build until then.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   # If a new push happens while a deploy is running, queue the new one rather
   # than cancelling the in-progress one (cancelling mid-deploy can leave the
