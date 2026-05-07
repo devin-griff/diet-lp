@@ -12,6 +12,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py favicon.png ./
 
+# Overwrite Streamlit's default static index.html title and favicon so the
+# initial render — before the React app boots and applies set_page_config —
+# already shows our app name and the blackletter-G favicon, instead of the
+# default "Streamlit" title flashing for ~1s before being replaced.
+RUN STATIC=$(python -c "import streamlit, os; print(os.path.join(os.path.dirname(streamlit.__file__), 'static'))") \
+    && sed -i 's|<title>Streamlit</title>|<title>Diet LP Optimizer</title>|' "$STATIC/index.html" \
+    && cp /app/favicon.png "$STATIC/favicon.png"
+
 EXPOSE 8080
 CMD ["streamlit", "run", "app.py", \
      "--server.port=8080", \
