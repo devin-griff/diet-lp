@@ -29,10 +29,12 @@
 #   7. Main         — page config and tab assembly at module bottom.
 # =============================================================================
 
+import base64
 import copy
 import math
 import os
 import tempfile
+from pathlib import Path
 
 import altair as alt
 import pandas as pd
@@ -777,8 +779,12 @@ st.markdown(
 # Home link: clicking the Griffith PSE logo navigates back to the portfolio
 # site. Same-tab navigation since the user is leaving the demo. Pinned to
 # the upper-left corner of the page via position:fixed so it stays visible
-# while scrolling. Image is loaded from griffith-pse.com so a single
-# CDN-served copy is the source of truth across all apps.
+# while scrolling. Image is embedded from the local favicon.png as a base64
+# data URL — the link still navigates to griffith-pse.com when clicked, but
+# loading the page itself doesn't make any third-party request.
+_FAVICON_DATA_URL = "data:image/png;base64," + base64.b64encode(
+    (Path(__file__).parent / "favicon.png").read_bytes()
+).decode()
 st.markdown(
     """
     <style>
@@ -799,7 +805,7 @@ st.markdown(
       <img src="https://griffith-pse.com/images/favicon.png"
            alt="Griffith PSE — home" />
     </a>
-    """,
+    """.replace("https://griffith-pse.com/images/favicon.png", _FAVICON_DATA_URL),
     unsafe_allow_html=True,
 )
 st.markdown(
