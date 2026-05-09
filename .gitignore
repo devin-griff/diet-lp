@@ -18,3 +18,5 @@ Thumbs.db
 
 # Build / logs
 *.log
+.claude/
+.ipynb_checkpoints/
