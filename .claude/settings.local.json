@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import streamlit, pyomo, altair, pandas; print\\('streamlit', streamlit.__version__\\); print\\('pyomo', pyomo.__version__\\); print\\('altair', altair.__version__\\); print\\('pandas', pandas.__version__\\)\")",
+      "Bash(python -c \"from solver import solve; from app import DEFAULT_DATA; r = solve\\(DEFAULT_DATA\\); print\\(r\\)\")",
+      "Bash(python -m streamlit run app.py --server.port 8765 --server.headless true --browser.gatherUsageStats false)",
+      "Bash(curl -sI http://localhost:8765/)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_in_Chrome__browser_batch",
+      "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_in_Chrome__computer",
+      "Bash(gh auth *)",
+      "PowerShell(gh auth status)",
+      "PowerShell(gh api user --jq '.login' 2>&1)",
+      "Bash(git --version)",
+      "Bash(git config *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(python -c \"import json; nb = json.load\\(open\\('diet.ipynb'\\)\\); print\\(f'Format: nbformat {nb[\\\\\"nbformat\\\\\"]}.{nb[\\\\\"nbformat_minor\\\\\"]}'\\); print\\(f'Cells: {len\\(nb[\\\\\"cells\\\\\"]\\)}'\\); [print\\(f'--- cell {i} \\({c[\\\\\"cell_type\\\\\"]}\\) ---'\\); print\\(''.join\\(c['source']\\)\\) for i, c in enumerate\\(nb['cells']\\)]\")",
+      "Bash(python)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}
