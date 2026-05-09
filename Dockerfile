@@ -1,9 +1,6 @@
-# Same shape as Knapsack — Streamlit + Pyomo + GLPK on Python 3.12 slim.
+# Same shape as Knapsack — Streamlit + Pyomo + HiGHS on Python 3.12 slim.
+# HiGHS ships as a pip wheel (`highspy`); no system deps needed.
 FROM python:3.12-slim
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends glpk-utils \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
