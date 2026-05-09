@@ -9,12 +9,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py favicon.png ./
 
-# Overwrite Streamlit's default static index.html title and favicon so the
-# initial render — before the React app boots and applies set_page_config —
-# already shows our app name and the blackletter-G favicon, instead of the
-# default "Streamlit" title flashing for ~1s before being replaced.
+# Overwrite Streamlit's default static index.html: title, favicon, and
+# inject Open Graph + Twitter Card meta tags so links to this app on
+# *.griffith-pse.com unfurl as a rich card on LinkedIn / Slack / iMessage.
 RUN STATIC=$(python -c "import streamlit, os; print(os.path.join(os.path.dirname(streamlit.__file__), 'static'))") \
     && sed -i 's|<title>Streamlit</title>|<title>Diet LP Optimizer</title>|' "$STATIC/index.html" \
+    && sed -i 's|</head>|<meta property="og:type" content="website"/><meta property="og:title" content="Diet LP Optimizer"/><meta property="og:description" content="Stigler diet LP: minimum-cost meal plan under nutrient constraints. Pyomo + HiGHS, runs in your browser."/><meta property="og:image" content="https://griffith-pse.com/images/og-image.png"/><meta property="og:image:width" content="1200"/><meta property="og:image:height" content="630"/><meta property="og:site_name" content="Griffith PSE"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="Diet LP Optimizer"/><meta name="twitter:description" content="Stigler diet LP: minimum-cost meal plan under nutrient constraints. Pyomo + HiGHS, runs in your browser."/><meta name="twitter:image" content="https://griffith-pse.com/images/og-image.png"/></head>|' "$STATIC/index.html" \
     && cp /app/favicon.png "$STATIC/favicon.png"
 
 # Run as a non-root user. If a future Streamlit (or transitive dep) RCE
