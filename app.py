@@ -88,8 +88,8 @@ def build_model(data):
 def _solve_capturing(m):
     """Run the solver and return (results, log_text). Captures HiGHS's
     stdout via Pyomo's capture_output (FD-level redirect on newer Pyomo,
-    plain stdout capture on older). HiGHS via the appsi_highs LegacySolver
-    doesn't support a logfile= kwarg, so the FD capture is the only path."""
+    plain stdout capture on older). HiGHS via appsi_highs doesn't support
+    a logfile= kwarg, so the FD-level capture is the only path."""
     log_text = ""
     try:
         with capture_output(capture_fd=True) as buf:
