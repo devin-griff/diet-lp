@@ -835,16 +835,24 @@ def render_optimizer_tab():
         chart_df = pd.DataFrame(rows)
         nutrient_order = [NUTRIENT_LABELS[n] for n in NUTRIENTS]
 
-        # `size=14` thickens each bar so the four nutrient groups read as
-        # solid columns rather than thin sticks. `paddingInner=0` on the
-        # xOffset scale pulls the You/Optimal pair together inside each
-        # nutrient slot so they read as a pair rather than two unrelated
-        # bars.
+        # Tight You/Optimal pairs inside each nutrient slot:
+        # - `paddingInner=0` on the xOffset scale removes the gap between
+        #   the two source sub-bands within a nutrient slot.
+        # - Bumping `mark_bar(size=20)` so each bar takes up ~all of its
+        #   half-slot; the pair effectively touches.
+        # - Bumping `paddingInner=0.5` on the x axis preserves space
+        #   between adjacent nutrient groups now that the pair itself is
+        #   wider.
         bars = (
             alt.Chart(chart_df)
-            .mark_bar(size=14)
+            .mark_bar(size=20)
             .encode(
-                x=alt.X("nutrient:N", sort=nutrient_order, title=None),
+                x=alt.X(
+                    "nutrient:N",
+                    sort=nutrient_order,
+                    title=None,
+                    scale=alt.Scale(paddingInner=0.5),
+                ),
                 xOffset=alt.XOffset(
                     "source:N",
                     sort=["You", "Optimal"],
