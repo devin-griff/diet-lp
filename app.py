@@ -650,7 +650,16 @@ def render_optimizer_tab():
             padding: 0.35rem 0.55rem;
             border-radius: 4px;
             font-size: 0.75rem;
-            white-space: nowrap;
+            /* `pre-line` honors explicit \n line breaks in the data-tooltip
+             * string while collapsing other whitespace, so the per-food
+             * tooltip wraps onto two lines after Carb. `width: max-content`
+             * stops the absolutely-positioned pseudo-element from inheriting
+             * the food sub-column's narrow width and breaking on every
+             * space. */
+            white-space: pre-line;
+            width: max-content;
+            text-align: center;
+            line-height: 1.35;
             z-index: 1000;
             pointer-events: none;
             margin-top: 0.35rem;
@@ -841,15 +850,26 @@ def render_optimizer_tab():
     # after every DOM mutation so Streamlit reruns and slider re-mounts
     # do not lose the attributes.
     nutrient_label_short = {"P": "Prot", "C": "Carb", "F": "Fat", "V": "Vit"}
-    user_tooltips = [
-        f"{f}  ·  ${data['price'][f]:g}  ·  "
-        + "  ·  ".join(
+    user_tooltips = []
+    for f in data["foods"]:
+        # Split nutrients across two lines so the tooltip is roughly square
+        # rather than a very wide single line. Break point is between Carb
+        # and Fat (first half of NUTRIENTS goes on line 1, second half on
+        # line 2). The CSS rule above sets `white-space: pre-line` so the
+        # literal \n character is rendered as a line break.
+        n_list = list(data["nutrients"])
+        mid = len(n_list) // 2  # 2 for the default [P, C, F, V]
+        line1_parts = [f, f"${data['price'][f]:g}"] + [
             f"{nutrient_label_short.get(n, n)} {data['content'][(f, n)]:g}"
-            for n in data["nutrients"]
-        )
-        + "  per unit"
-        for f in data["foods"]
-    ]
+            for n in n_list[:mid]
+        ]
+        line2_parts = [
+            f"{nutrient_label_short.get(n, n)} {data['content'][(f, n)]:g}"
+            for n in n_list[mid:]
+        ]
+        line1 = "  ·  ".join(line1_parts)
+        line2 = "  ·  ".join(line2_parts) + "  per unit"
+        user_tooltips.append(line1 + "\n" + line2)
 
     components.html(
         f"""
