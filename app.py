@@ -624,14 +624,10 @@ def render_optimizer_tab():
         div[data-testid="stHorizontalBlock"]:has(iframe) {
             gap: 0 !important;
         }
-        /* Streamlit renders st.markdown as a sibling, not a parent — so the
-         * .optimal-diet-bank marker div sits next to the iframes inside the
-         * right column. We target the enclosing stColumn that has the
-         * marker as a descendant, then disable pointer events on every
-         * iframe inside that column so the optimal sliders are read only.
-         * Selector does NOT depend on the iframe title (which we rewrite
-         * elsewhere via JS) so the rule keeps applying after that rewrite. */
-        [data-testid="stColumn"]:has(.optimal-diet-bank) iframe {
+        /* Optimal-side iframes are read only. The data-readonly attribute
+         * is stamped by the components.html script below onto each food
+         * sub-column on the right side. */
+        [data-readonly] iframe {
             pointer-events: none;
         }
         /* Custom hover tooltip on user-side food sub-columns. Native iframe
@@ -639,7 +635,7 @@ def render_optimizer_tab():
          * consumes the hover; CSS :hover on the parent column does fire
          * whenever the mouse is anywhere over the column's bounding box,
          * iframe included. The text comes from a data-tooltip attribute
-         * that the script below writes onto each user-side column. */
+         * the script below writes onto each user-side column. */
         [data-tooltip] {
             position: relative;
         }
@@ -797,9 +793,6 @@ def render_optimizer_tab():
         st.markdown("**Optimal diet**")
         solved = bool(optimal and optimal["status"] == "optimal")
         opt_x = optimal["x"] if solved else {}
-        # Marker div so the CSS rule can scope pointer-events: none to
-        # this column's iframes only.
-        st.markdown('<div class="optimal-diet-bank">', unsafe_allow_html=True)
         food_cols = st.columns(len(data["foods"]), gap="small")
         for c, f in zip(food_cols, data["foods"]):
             ub = slider_upper_bound(f, data)
@@ -828,30 +821,33 @@ def render_optimizer_tab():
                     thumb_color=color,
                     value_always_visible=True,
                 )
-        st.markdown('</div>', unsafe_allow_html=True)
 
         # Optimal cost: left-aligned at the bottom of the right column so
         # it visually pairs with the optimal slider bank.
         colored_metric("Optimal cost", opt_value, opt_color, align="left")
 
-    # Wire up hover tooltips on the USER side only. Each user slider's
-    # parent food sub-column (stColumn) gets a `data-tooltip` attribute;
-    # the CSS rule above renders a custom badge via `:hover::after`. Native
-    # `iframe[title]` tooltips fire unreliably when the iframe content is
-    # interactive, so we don't go that route here. The optimal side gets
-    # no tooltip (already explained inline via the gray/green colors).
+    # Wire up hover tooltips on the USER side and mark the OPTIMAL side
+    # read only. Each user slider's parent food sub-column (stColumn) gets
+    # a `data-tooltip` attribute; the CSS above renders the badge via
+    # `:hover::after`. Each optimal sub-column gets a `data-readonly`
+    # attribute; the CSS above sets pointer-events: none on iframes
+    # underneath. Doing both via JS avoids any extra Streamlit wrapper
+    # elements that would push the right column down (the previous marker
+    # div trick added ~16-32px of offset on the right side).
     #
     # Streamlit's markdown sanitizer strips <script>, so we run the
     # attribute injection inside a same-origin components.html iframe that
     # reaches into window.parent.document. A MutationObserver re-applies
     # after every DOM mutation so Streamlit reruns and slider re-mounts
-    # do not lose the attribute.
+    # do not lose the attributes.
+    nutrient_label_short = {"P": "Prot", "C": "Carb", "F": "Fat", "V": "Vit"}
     user_tooltips = [
-        f"{f}  ·  ${data['price'][f]:g} per unit  ·  "
-        + " ".join(
-            f"{n}{data['content'][(f, n)]:g}"
+        f"{f}  ·  ${data['price'][f]:g}  ·  "
+        + "  ·  ".join(
+            f"{nutrient_label_short.get(n, n)} {data['content'][(f, n)]:g}"
             for n in data["nutrients"]
         )
+        + "  per unit"
         for f in data["foods"]
     ]
 
@@ -862,17 +858,16 @@ def render_optimizer_tab():
             var userTooltips = {json.dumps(user_tooltips)};
             var doc = window.parent.document;
             function apply() {{
-                // The user-side slider iframes are the FIRST batch of
-                // streamlit_vertical_slider iframes on the page (followed
-                // by the optimal-side iframes). Walk up from each to its
-                // enclosing stColumn (the food sub-column) and stamp
-                // data-tooltip on it.
+                // Iframe order: first 6 are user-side, next 6 are optimal.
                 var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
                 var n = userTooltips.length;
-                for (var i = 0; i < n && i < iframes.length; i++) {{
+                for (var i = 0; i < iframes.length; i++) {{
                     var col = iframes[i].closest('[data-testid="stColumn"]');
-                    if (col) {{
+                    if (!col) continue;
+                    if (i < n) {{
                         col.setAttribute('data-tooltip', userTooltips[i]);
+                    }} else {{
+                        col.setAttribute('data-readonly', '');
                     }}
                 }}
             }}
@@ -916,7 +911,7 @@ st.markdown(
     <style>
     .block-container,
     [data-testid="stMainBlockContainer"] {
-      padding-top: 4rem !important;
+      padding-top: 2.5rem !important;
     }
     </style>
     """,
