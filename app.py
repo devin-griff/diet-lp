@@ -385,13 +385,15 @@ def build_instance_latex(data):
     return body
 
 
-def colored_metric(label, value, color):
+def colored_metric(label, value, color, align="left"):
     # st.metric doesn't support arbitrary value coloring, so we render a
     # metric-shaped block via raw HTML. Used to flag matching/mismatching
     # values (green if your cost equals the optimum, red otherwise).
+    # `align` controls text-align so the metric can sit flush against
+    # either edge of its column.
     style_color = f"color: {color};" if color else ""
     st.markdown(
-        f"<div style='margin: 0.25rem 0 1rem 0;'>"
+        f"<div style='margin: 0.25rem 0 1rem 0; text-align: {align};'>"
         f"<div style='font-size: 0.875rem; color: rgba(49,51,63,0.6); margin-bottom: 0.25rem;'>{label}</div>"
         f"<div style='font-size: 2rem; font-weight: 600; line-height: 1; {style_color}'>{value}</div>"
         f"</div>",
@@ -607,12 +609,25 @@ def render_optimizer_tab():
     # `gap="small"` still leaves visible spacing in the horizontal block;
     # this scoped rule targets only stHorizontalBlocks that contain a
     # vertical_slider iframe so other column rows on the page (the action
-    # button row, the cost metric row) are not affected.
+    # button row, the cost metric row) are not affected. The optimal-diet
+    # rule disables pointer events on the right column's iframes so those
+    # sliders are visible but cannot be dragged.
     st.markdown(
         """
         <style>
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stIFrame"]) {
-            gap: 0.25rem !important;
+        /* Tighten the gap between food sub-columns in any horizontal block
+         * that holds vertical_slider iframes. The iframe's title attribute
+         * is the only stable hook (no data-testid on the wrapper). */
+        div[data-testid="stHorizontalBlock"]:has(iframe[title*="vertical_slider"]) {
+            gap: 0 !important;
+        }
+        /* Streamlit renders st.markdown as a sibling, not a parent — so the
+         * .optimal-diet-bank marker div sits next to the iframes inside the
+         * right column. We target the enclosing stColumn that has the
+         * marker as a descendant, then disable pointer events on every
+         * vertical_slider iframe inside that column. */
+        [data-testid="stColumn"]:has(.optimal-diet-bank) iframe[title*="vertical_slider"] {
+            pointer-events: none;
         }
         </style>
         """,
@@ -650,21 +665,44 @@ def render_optimizer_tab():
                 # cost, Set at Optimum copy back) keeps working unchanged.
                 if new_val is not None:
                     st.session_state[key] = float(new_val)
-                # Per food caption with price and per unit nutrient content.
-                # Single letter nutrient codes with no separators so the
-                # caption fits under a narrow column on one line.
-                nutrient_parts = [
-                    f"{n}{data['content'][(f, n)]:g}"
-                    for n in data["nutrients"]
-                ]
-                st.caption(
-                    f"${data['price'][f]:g} " + " ".join(nutrient_parts)
+                # Compact info marker. Shows just "$2 ⓘ" inline; full per
+                # unit price and nutrient breakdown surface via the native
+                # browser tooltip (title attr) on hover.
+                tooltip = (
+                    f"${data['price'][f]:g} per unit · "
+                    + " ".join(
+                        f"{n}{data['content'][(f, n)]:g}"
+                        for n in data["nutrients"]
+                    )
+                )
+                st.markdown(
+                    f"<div style='text-align: center; font-size: 0.8rem; "
+                    f"color: #6b7280; cursor: help;' title='{tooltip}'>"
+                    f"${data['price'][f]:g} ⓘ</div>",
+                    unsafe_allow_html=True,
                 )
 
     # Read the user sliders and compute the user cost AFTER the left side
     # widgets have written their values back into session_state above.
     slider_vals = current_slider_values()
     user_cost = cost_of(slider_vals, data)
+
+    # Decide cost-metric colors once so both columns paint consistently.
+    if optimal and optimal["status"] == "optimal":
+        opt_cost = float(optimal["cost"])
+        matches = abs(user_cost - opt_cost) < 0.01
+        your_color = "#16a34a" if matches else "#dc2626"
+        opt_color = "#16a34a"
+        opt_value = f"{opt_cost:.2f}"
+    else:
+        your_color = None
+        opt_color = None
+        opt_value = "—"
+
+    # Your cost: right-aligned at the bottom of the left column so it
+    # visually pairs with the user slider bank.
+    with your_col:
+        colored_metric("Your cost", f"{user_cost:.2f}", your_color, align="right")
 
     with chart_col:
         # Middle column: grouped bar chart of nutrient totals (You vs
@@ -731,64 +769,56 @@ def render_optimizer_tab():
                 tooltip=[alt.Tooltip("value:Q", title="Min requirement")],
             )
         )
-        chart = (bars + rules).resolve_scale(color="independent").properties(height=320)
+        # Chart height tuned to match the slider band (slider 220 + label
+        # rows above and below ~= 260 visible) so the chart bottom aligns
+        # with the bottom of the food labels in the flanking columns.
+        chart = (bars + rules).resolve_scale(color="independent").properties(height=260)
         st.altair_chart(chart, width="stretch")
 
-        # Cost metrics live directly under the chart so they sit in the
-        # same column as the constraints they describe. Color the user
-        # cost green if it matches the optimum within a cent, red otherwise.
-        if optimal and optimal["status"] == "optimal":
-            opt_cost = float(optimal["cost"])
-            matches = abs(user_cost - opt_cost) < 0.01
-            your_color = "#16a34a" if matches else "#dc2626"
-            opt_color = "#16a34a"
-            opt_value = f"{opt_cost:.2f}"
-        else:
-            your_color = None
-            opt_color = None
-            opt_value = "—"
-        m1, m2 = st.columns(2)
-        with m1:
-            colored_metric("Your cost", f"{user_cost:.2f}", your_color)
-        with m2:
-            colored_metric("Optimal cost", opt_value, opt_color)
-
     with opt_col:
-        # Right column: vertical sliders showing the solver's x_f values.
-        # Colored green so they read as informational.
-        if optimal and optimal["status"] == "optimal":
-            st.markdown("**Optimal diet**")
-            opt_x = optimal["x"]
-            food_cols = st.columns(len(data["foods"]), gap="small")
-            for c, f in zip(food_cols, data["foods"]):
-                ub = slider_upper_bound(f, data)
-                val = float(opt_x.get(f, 0.0))
-                # Clamp into [0, ub] and round to one decimal place so the
-                # thumb badge does not show a long float.
-                val = round(max(0.0, min(val, ub)), 1)
-                with c:
-                    vertical_slider(
-                        label=f,
-                        key=f"opt_v_{f}",
-                        height=220,
-                        default_value=val,
-                        min_value=0.0,
-                        max_value=float(ub),
-                        step=0.1,
-                        slider_color="#54A24B",
-                        track_color="#E5E9F1",
-                        thumb_color="#54A24B",
-                        value_always_visible=True,
-                    )
-                    st.caption(f"x = {val:.2f}")
-        else:
-            st.markdown(
-                "**Optimal diet**"
-                " <span style='color: rgba(49,51,63,0.6); font-size: 0.85rem;"
-                " margin-left: 0.5rem;'>"
-                "Click Run Optimizer.</span>",
-                unsafe_allow_html=True,
-            )
+        # Right column: always render the 6 sliders. Pre-solve they appear
+        # in gray with value 0; post-solve they switch to green with the
+        # solver's x_f. Pointer events are disabled via the CSS rule above
+        # so they read as informational regardless of state.
+        st.markdown("**Optimal diet**")
+        solved = bool(optimal and optimal["status"] == "optimal")
+        opt_x = optimal["x"] if solved else {}
+        # Marker div so the CSS rule can scope pointer-events: none to
+        # this column's iframes only.
+        st.markdown('<div class="optimal-diet-bank">', unsafe_allow_html=True)
+        food_cols = st.columns(len(data["foods"]), gap="small")
+        for c, f in zip(food_cols, data["foods"]):
+            ub = slider_upper_bound(f, data)
+            if solved:
+                val = round(max(0.0, min(float(opt_x.get(f, 0.0)), ub)), 1)
+                color = "#54A24B"
+            else:
+                val = 0.0
+                color = "#cbd5e1"
+            with c:
+                # Key includes val so the component re-mounts and picks up
+                # the new default_value when the optimal solution changes.
+                # The package's JS state otherwise sticks at whatever it
+                # was on first mount, ignoring subsequent default_value
+                # props.
+                vertical_slider(
+                    label=f,
+                    key=f"opt_v_{f}_{val:g}",
+                    height=220,
+                    default_value=val,
+                    min_value=0.0,
+                    max_value=float(ub),
+                    step=0.1,
+                    slider_color=color,
+                    track_color="#E5E9F1",
+                    thumb_color=color,
+                    value_always_visible=True,
+                )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Optimal cost: left-aligned at the bottom of the right column so
+        # it visually pairs with the optimal slider bank.
+        colored_metric("Optimal cost", opt_value, opt_color, align="left")
 
 
 # ---------- Main ----------
