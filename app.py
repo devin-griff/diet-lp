@@ -35,10 +35,13 @@ import copy
 import math
 from pathlib import Path
 
+import json
+
 import altair as alt
 import pandas as pd
 import pyomo.environ as pyo
 import streamlit as st
+import streamlit.components.v1 as components
 from pyomo.common.errors import ApplicationError
 from pyomo.common.tee import capture_output
 from pyomo.opt import TerminationCondition
@@ -665,22 +668,6 @@ def render_optimizer_tab():
                 # cost, Set at Optimum copy back) keeps working unchanged.
                 if new_val is not None:
                     st.session_state[key] = float(new_val)
-                # Compact info marker. Shows just "$2 ⓘ" inline; full per
-                # unit price and nutrient breakdown surface via the native
-                # browser tooltip (title attr) on hover.
-                tooltip = (
-                    f"${data['price'][f]:g} per unit · "
-                    + " ".join(
-                        f"{n}{data['content'][(f, n)]:g}"
-                        for n in data["nutrients"]
-                    )
-                )
-                st.markdown(
-                    f"<div style='text-align: center; font-size: 0.8rem; "
-                    f"color: #6b7280; cursor: help;' title='{tooltip}'>"
-                    f"${data['price'][f]:g} ⓘ</div>",
-                    unsafe_allow_html=True,
-                )
 
     # Read the user sliders and compute the user cost AFTER the left side
     # widgets have written their values back into session_state above.
@@ -819,6 +806,67 @@ def render_optimizer_tab():
         # Optimal cost: left-aligned at the bottom of the right column so
         # it visually pairs with the optimal slider bank.
         colored_metric("Optimal cost", opt_value, opt_color, align="left")
+
+    # Tie hover tooltips to the slider iframes themselves. The vertical_slider
+    # package renders each slider inside an iframe whose own `title` attribute
+    # becomes a native browser tooltip on hover. We override that title via
+    # a script (which Streamlit's markdown sanitizer strips, but components.html
+    # allows) executed in a same-origin child iframe so it can reach
+    # `window.parent.document`. A MutationObserver re-applies the titles after
+    # every DOM change so reruns and slider re-mounts do not lose them.
+    user_tooltips = [
+        f"{f}  ·  ${data['price'][f]:g} per unit  ·  "
+        + " ".join(
+            f"{n}{data['content'][(f, n)]:g}"
+            for n in data["nutrients"]
+        )
+        for f in data["foods"]
+    ]
+    opt_tooltips = []
+    if optimal and optimal["status"] == "optimal":
+        for f in data["foods"]:
+            ub = slider_upper_bound(f, data)
+            val = round(max(0.0, min(float(optimal["x"].get(f, 0.0)), ub)), 1)
+            opt_tooltips.append(f"{f}  ·  optimal x = {val:g}")
+    else:
+        opt_tooltips = [f"{f}  ·  Run Optimizer to see x" for f in data["foods"]]
+
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            var userTooltips = {json.dumps(user_tooltips)};
+            var optTooltips = {json.dumps(opt_tooltips)};
+            var doc = window.parent.document;
+            function apply() {{
+                var iframes = doc.querySelectorAll('iframe[title*=vertical_slider], iframe[data-tooltip-applied]');
+                var n = userTooltips.length;
+                for (var i = 0; i < iframes.length; i++) {{
+                    var t = i < n ? userTooltips[i] : optTooltips[i - n];
+                    if (t !== undefined) {{
+                        iframes[i].title = t;
+                        iframes[i].setAttribute('data-tooltip-applied', '1');
+                    }}
+                }}
+            }}
+            apply();
+            if (window.parent.__sliderTooltipObserver) {{
+                window.parent.__sliderTooltipObserver.disconnect();
+            }}
+            var timeout;
+            var observer = new MutationObserver(function() {{
+                clearTimeout(timeout);
+                timeout = setTimeout(apply, 50);
+            }});
+            observer.observe(doc.body, {{childList: true, subtree: true}});
+            window.parent.__sliderTooltipObserver = observer;
+            window.parent.__sliderTooltipsUser = userTooltips;
+            window.parent.__sliderTooltipsOpt = optTooltips;
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 # ---------- Main ----------
