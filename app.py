@@ -603,6 +603,22 @@ def render_optimizer_tab():
         if existing != preserved:
             st.session_state[key] = preserved
 
+    # Tighten the gaps between food sub-columns. Streamlit's smallest
+    # `gap="small"` still leaves visible spacing in the horizontal block;
+    # this scoped rule targets only stHorizontalBlocks that contain a
+    # vertical_slider iframe so other column rows on the page (the action
+    # button row, the cost metric row) are not affected.
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stIFrame"]) {
+            gap: 0.25rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # Three column body: Your diet (left), nutrient chart (middle), Optimal
     # diet (right). Tight gap on the slider sub columns so the six vertical
     # sliders per side stay compact.
@@ -635,14 +651,14 @@ def render_optimizer_tab():
                 if new_val is not None:
                     st.session_state[key] = float(new_val)
                 # Per food caption with price and per unit nutrient content.
-                # Uses the single letter nutrient codes (P, C, F, V) so the
-                # caption fits under a narrow column.
+                # Single letter nutrient codes with no separators so the
+                # caption fits under a narrow column on one line.
                 nutrient_parts = [
-                    f"{n} {data['content'][(f, n)]:g}"
+                    f"{n}{data['content'][(f, n)]:g}"
                     for n in data["nutrients"]
                 ]
                 st.caption(
-                    f"${data['price'][f]:g} · " + " · ".join(nutrient_parts)
+                    f"${data['price'][f]:g} " + " ".join(nutrient_parts)
                 )
 
     # Read the user sliders and compute the user cost AFTER the left side
@@ -715,8 +731,27 @@ def render_optimizer_tab():
                 tooltip=[alt.Tooltip("value:Q", title="Min requirement")],
             )
         )
-        chart = (bars + rules).resolve_scale(color="independent").properties(height=240)
+        chart = (bars + rules).resolve_scale(color="independent").properties(height=320)
         st.altair_chart(chart, width="stretch")
+
+        # Cost metrics live directly under the chart so they sit in the
+        # same column as the constraints they describe. Color the user
+        # cost green if it matches the optimum within a cent, red otherwise.
+        if optimal and optimal["status"] == "optimal":
+            opt_cost = float(optimal["cost"])
+            matches = abs(user_cost - opt_cost) < 0.01
+            your_color = "#16a34a" if matches else "#dc2626"
+            opt_color = "#16a34a"
+            opt_value = f"{opt_cost:.2f}"
+        else:
+            your_color = None
+            opt_color = None
+            opt_value = "—"
+        m1, m2 = st.columns(2)
+        with m1:
+            colored_metric("Your cost", f"{user_cost:.2f}", your_color)
+        with m2:
+            colored_metric("Optimal cost", opt_value, opt_color)
 
     with opt_col:
         # Right column: vertical sliders showing the solver's x_f values.
@@ -754,27 +789,6 @@ def render_optimizer_tab():
                 "Click Run Optimizer.</span>",
                 unsafe_allow_html=True,
             )
-
-    st.divider()
-
-    # Two cost metrics centered below the 3 column body. Color the user
-    # cost green if it matches the optimum within a cent, red otherwise.
-    _, m1, m2, _ = st.columns([3, 1, 1, 3])
-    if optimal and optimal["status"] == "optimal":
-        opt_cost = float(optimal["cost"])
-        matches = abs(user_cost - opt_cost) < 0.01
-        your_color = "#16a34a" if matches else "#dc2626"
-        opt_color = "#16a34a"
-        opt_value = f"{opt_cost:.2f}"
-    else:
-        your_color = None
-        opt_color = None
-        opt_value = "—"
-
-    with m1:
-        colored_metric("Your cost", f"{user_cost:.2f}", your_color)
-    with m2:
-        colored_metric("Optimal cost", opt_value, opt_color)
 
 
 # ---------- Main ----------
