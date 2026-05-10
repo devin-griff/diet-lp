@@ -531,8 +531,9 @@ $$
             "In 1945, economist George Stigler asked: what is the cheapest "
             "diet that meets every daily nutritional requirement? With nothing "
             "but paper, pencil, and \"a shrewd hunch about the products that "
-            "should appear in the optimal diet\" (his words), he found a nine "
-            "food combination costing \\$39.93 per year in 1939 dollars."
+            "should appear in the optimal diet\" (his words), he found a five "
+            "food combination (wheat flour, evaporated milk, cabbage, spinach, "
+            "dried navy beans) costing \\$39.93 per year in 1939 dollars."
         )
         st.markdown(
             "Two years later, George Dantzig invented the simplex method and "
