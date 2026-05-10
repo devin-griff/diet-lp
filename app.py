@@ -1080,7 +1080,19 @@ def render_optimizer_tab():
                         '* {{ -webkit-user-select: none !important; ' +
                         '-moz-user-select: none !important; ' +
                         'user-select: none !important; }} ' +
-                        'span + label {{ visibility: hidden !important; }}'
+                        'span + label {{ visibility: hidden !important; }} ' +
+                        // MUI Slider thumb's blue focus / active ring
+                        // lingers after the programmatic input dispatch
+                        // we use for Set-at-Optimum / Run-Optimizer
+                        // animations. Suppress the box-shadow halo so the
+                        // thumbs don't read as "stuck focused".
+                        '.MuiSlider-thumb, ' +
+                        '.MuiSlider-thumb:hover, ' +
+                        '.MuiSlider-thumb.Mui-focusVisible, ' +
+                        '.MuiSlider-thumb.Mui-active {{ ' +
+                        '  box-shadow: none !important; ' +
+                        '  outline: none !important; ' +
+                        '}}'
                     );
                     d.head.appendChild(style);
                 }} catch (e) {{ /* cross-origin or not ready */ }}
