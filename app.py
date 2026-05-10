@@ -835,11 +835,12 @@ def render_optimizer_tab():
         chart_df = pd.DataFrame(rows)
         nutrient_order = [NUTRIENT_LABELS[n] for n in NUTRIENTS]
 
-        # `size=8` makes each bar thin so eight bars (4 nutrients x 2
-        # sources) fit comfortably in the narrow column.
+        # `size=14` thickens each bar so the four nutrient groups read as
+        # solid columns rather than thin sticks; still narrow enough that
+        # the You/Optimal pairs don't run into each other.
         bars = (
             alt.Chart(chart_df)
-            .mark_bar(size=8)
+            .mark_bar(size=14)
             .encode(
                 x=alt.X("nutrient:N", sort=nutrient_order, title=None),
                 xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
