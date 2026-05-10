@@ -684,6 +684,17 @@ def render_optimizer_tab():
         div[data-testid="stHorizontalBlock"]:has(iframe) {
             gap: 0 !important;
         }
+        /* Disable text selection on the slider banks. Without this, dragging
+         * a slider thumb (or even just clicking on the column) selects the
+         * label text (food name, value badge, "0" tick label) and surrounding
+         * UI, leaving an ugly blue highlight that persists until the user
+         * clicks elsewhere. -webkit- prefix needed for older Safari. */
+        div[data-testid="stHorizontalBlock"]:has(iframe),
+        div[data-testid="stHorizontalBlock"]:has(iframe) * {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            user-select: none;
+        }
         /* Optimal-side iframes are read only. The data-readonly attribute
          * is stamped by the components.html script below onto each food
          * sub-column on the right side. */
@@ -939,6 +950,19 @@ def render_optimizer_tab():
         (function() {{
             var userTooltips = {json.dumps(user_tooltips)};
             var doc = window.parent.document;
+            function disableSelectionInside(iframe) {{
+                // Inject `user-select: none` into the iframe's own document
+                // (parent-document CSS does not cross iframe boundaries).
+                // Idempotent: skips if a marker stylesheet already exists.
+                try {{
+                    var d = iframe.contentDocument;
+                    if (!d || !d.head || d.querySelector('style[data-no-select]')) return;
+                    var style = d.createElement('style');
+                    style.setAttribute('data-no-select', '1');
+                    style.textContent = '* {{ -webkit-user-select: none !important; -moz-user-select: none !important; user-select: none !important; }}';
+                    d.head.appendChild(style);
+                }} catch (e) {{ /* cross-origin or not ready */ }}
+            }}
             function apply() {{
                 // Iframe order: first 6 are user-side, next 6 are optimal.
                 var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
@@ -951,6 +975,11 @@ def render_optimizer_tab():
                     }} else {{
                         col.setAttribute('data-readonly', '');
                     }}
+                    disableSelectionInside(iframes[i]);
+                    // Some iframes load late; retry once after a beat.
+                    iframes[i].addEventListener('load', function(e) {{
+                        disableSelectionInside(e.target);
+                    }}, {{ once: true }});
                 }}
             }}
             apply();
