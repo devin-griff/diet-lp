@@ -642,17 +642,18 @@ def render_optimizer_tab():
             # is clamped to its own upper bound, then rounded to match the
             # step=0.1 of the user sliders (otherwise the value badge shows
             # full-precision floats like 1.62878787878). Bumping
-            # `user_slider_version` rotates the component keys so the
-            # vertical_slider iframes re-mount and actually pick up the new
-            # default_value — the package ignores subsequent default_value
-            # prop changes once mounted.
+            # `set_at_optimum_token` triggers the components.html script to
+            # DOM-poke each slider's underlying <input type=range> so the
+            # thumb animates to the new position without remounting the
+            # iframe (the package ignores default_value prop changes after
+            # first mount, and a remount looks like a reload).
             for f in data["foods"]:
                 ub = slider_upper_bound(f, data)
                 val = float(optimal["x"].get(f, 0.0))
                 clamped = max(0.0, min(val, ub))
                 st.session_state[slider_key(f)] = round(clamped, 1)
-            st.session_state.user_slider_version = (
-                st.session_state.get("user_slider_version", 0) + 1
+            st.session_state.set_at_optimum_token = (
+                st.session_state.get("set_at_optimum_token", 0) + 1
             )
             st.rerun()
 
@@ -677,6 +678,21 @@ def render_optimizer_tab():
         preserved = max(0.0, min(existing, ub))
         if existing != preserved:
             st.session_state[key] = preserved
+
+    # Detect whether THIS rerun was triggered by "Set at Optimum". On that
+    # one rerun the canonical slider_<food> keys carry the new optimal
+    # values, but the iframes' React state still has the stale pre-click
+    # values. We skip the mirror-back-from-component-state step on this
+    # rerun so the canonical doesn't get overwritten with the stale JS
+    # values. The components.html script below DOM-pokes the iframes to
+    # the new values, which triggers a second rerun where the JS state
+    # is current and the mirror runs normally again.
+    current_optimum_token = st.session_state.get("set_at_optimum_token", 0)
+    last_seen_optimum_token = st.session_state.get(
+        "_optimum_token_last_seen", 0
+    )
+    just_set_at_optimum = current_optimum_token != last_seen_optimum_token
+    st.session_state["_optimum_token_last_seen"] = current_optimum_token
 
     # Tighten the gaps between food sub-columns. Streamlit's smallest
     # `gap="small"` still leaves visible spacing in the horizontal block;
@@ -763,11 +779,7 @@ def render_optimizer_tab():
             key = slider_key(f)
             current = float(st.session_state.get(key, 0.0))
             with c:
-                # Version suffix forces re-mount when "Set at Optimum"
-                # bumps the counter; otherwise the component's JS state
-                # ignores new default_value props.
-                version = st.session_state.get("user_slider_version", 0)
-                component_key = f"v_{key}_{version}"
+                component_key = f"v_{key}"
                 vertical_slider(
                     label=f,
                     key=component_key,
@@ -788,9 +800,15 @@ def render_optimizer_tab():
                 # from session_state instead — Streamlit's component
                 # machinery stores the actual JS-side value under the
                 # component's key, bypassing the package's falsy check.
-                raw = st.session_state.get(component_key)
-                if raw is not None:
-                    st.session_state[key] = float(raw)
+                # Skip the mirror on the rerun fired by "Set at Optimum":
+                # the canonical key already has the new value, and the JS
+                # state hasn't been DOM-poked to the new value yet, so
+                # mirroring would clobber canonical with the stale JS
+                # value.
+                if not just_set_at_optimum:
+                    raw = st.session_state.get(component_key)
+                    if raw is not None:
+                        st.session_state[key] = float(raw)
 
     # Read the user sliders and compute the user cost AFTER the left side
     # widgets have written their values back into session_state above.
@@ -991,11 +1009,21 @@ def render_optimizer_tab():
         line2 = "  ·  ".join(line2_parts) + "  per unit"
         user_tooltips.append(line1 + "\n" + line2)
 
+    # Collect the current canonical slider values; the JS uses these to
+    # DOM-poke the iframes' <input type=range> on a "Set at Optimum" click.
+    optimum_values = [
+        float(st.session_state.get(slider_key(f), 0.0))
+        for f in data["foods"]
+    ]
+    optimum_token = st.session_state.get("set_at_optimum_token", 0)
+
     components.html(
         f"""
         <script>
         (function() {{
             var userTooltips = {json.dumps(user_tooltips)};
+            var optimumValues = {json.dumps(optimum_values)};
+            var optimumToken = {json.dumps(optimum_token)};
             var doc = window.parent.document;
             function disableSelectionInside(iframe) {{
                 // Inject styles into the iframe's own document. Parent-page
@@ -1044,6 +1072,46 @@ def render_optimizer_tab():
                     }}, {{ once: true }});
                 }}
             }}
+            // "Set at Optimum" path: DOM-poke each user-side slider's
+            // underlying <input type=range> to the new value and dispatch
+            // an input event so React picks up the change and animates the
+            // thumb. Without this, the package's React component ignores
+            // the new default_value prop after first mount, and the only
+            // way to move the thumb was to remount the iframe (visible
+            // reload).
+            function applyOptimumValues() {{
+                var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
+                var n = optimumValues.length;
+                for (var i = 0; i < n && i < iframes.length; i++) {{
+                    try {{
+                        var inner = iframes[i].contentDocument;
+                        if (!inner) continue;
+                        var input = inner.querySelector('input[type=range]');
+                        if (!input) continue;
+                        // Use the native setter so React's value-tracker
+                        // sees the change and fires the React onChange
+                        // (a plain `input.value = ...` is shadowed by the
+                        // React-installed setter and is ignored).
+                        var proto = iframes[i].contentWindow.HTMLInputElement.prototype;
+                        var nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                        nativeSetter.call(input, String(optimumValues[i]));
+                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        // Drop focus so the MUI slider's blue active ring
+                        // doesn't linger on the touched thumbs.
+                        input.blur();
+                    }} catch (e) {{ /* iframe not ready yet */ }}
+                }}
+            }}
+            if (optimumToken > 0
+                && window.parent.__dietOptimumTokenSeen !== optimumToken) {{
+                // First attempt immediately; retry once in case any
+                // iframe hadn't finished loading.
+                applyOptimumValues();
+                setTimeout(applyOptimumValues, 120);
+                window.parent.__dietOptimumTokenSeen = optimumToken;
+            }}
+
             apply();
             if (window.parent.__dietTooltipObserver) {{
                 window.parent.__dietTooltipObserver.disconnect();
