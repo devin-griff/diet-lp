@@ -603,13 +603,14 @@ def render_optimizer_tab():
         if existing != preserved:
             st.session_state[key] = preserved
 
-    # Two halves side by side: Your diet on the left, Optimal diet on the
-    # right. Each half holds a row of vertical sliders, one per food.
-    your_col, opt_col = st.columns([1, 1])
+    # Three column body: Your diet (left), nutrient chart (middle), Optimal
+    # diet (right). Tight gap on the slider sub columns so the six vertical
+    # sliders per side stay compact.
+    your_col, chart_col, opt_col = st.columns([5, 3, 5])
 
     with your_col:
         st.markdown("**Your diet**")
-        food_cols = st.columns(len(data["foods"]))
+        food_cols = st.columns(len(data["foods"]), gap="small")
         for c, f in zip(food_cols, data["foods"]):
             ub = slider_upper_bound(f, data)
             key = slider_key(f)
@@ -633,32 +634,102 @@ def render_optimizer_tab():
                 # cost, Set at Optimum copy back) keeps working unchanged.
                 if new_val is not None:
                     st.session_state[key] = float(new_val)
-                # Per food caption with price and per unit nutrient content
-                # so the user can reason about tradeoffs without flipping
-                # to the Data tab.
+                # Per food caption with price and per unit nutrient content.
+                # Uses the single letter nutrient codes (P, C, F, V) so the
+                # caption fits under a narrow column.
                 nutrient_parts = [
-                    f"{NUTRIENT_LABELS.get(n, n).lower()[:3]} {data['content'][(f, n)]:g}"
+                    f"{n} {data['content'][(f, n)]:g}"
                     for n in data["nutrients"]
                 ]
                 st.caption(
                     f"${data['price'][f]:g} · " + " · ".join(nutrient_parts)
                 )
 
+    # Read the user sliders and compute the user cost AFTER the left side
+    # widgets have written their values back into session_state above.
+    slider_vals = current_slider_values()
+    user_cost = cost_of(slider_vals, data)
+
+    with chart_col:
+        # Middle column: grouped bar chart of nutrient totals (You vs
+        # Optimal) with red minimum requirement rules. Bars are slim so
+        # the four nutrient groups fit in the narrow middle column.
+        st.markdown("**Constraints**")
+
+        user_totals = nutrient_totals(slider_vals, data)
+        rows = [
+            {"nutrient": NUTRIENT_LABELS[n], "source": "You", "value": user_totals[n]}
+            for n in NUTRIENTS
+        ]
+        if optimal and optimal["status"] == "optimal":
+            opt_totals = nutrient_totals(optimal["x"], data)
+            rows.extend(
+                {"nutrient": NUTRIENT_LABELS[n], "source": "Optimal", "value": opt_totals[n]}
+                for n in NUTRIENTS
+            )
+
+        chart_df = pd.DataFrame(rows)
+        nutrient_order = [NUTRIENT_LABELS[n] for n in NUTRIENTS]
+
+        # `size=8` makes each bar thin so eight bars (4 nutrients x 2
+        # sources) fit comfortably in the narrow column.
+        bars = (
+            alt.Chart(chart_df)
+            .mark_bar(size=8)
+            .encode(
+                x=alt.X("nutrient:N", sort=nutrient_order, title=None),
+                xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
+                y=alt.Y("value:Q", title="Total nutrient"),
+                color=alt.Color(
+                    "source:N",
+                    scale=alt.Scale(domain=["You", "Optimal"], range=["#FF4B4B", "#54A24B"]),
+                    legend=alt.Legend(title=None, orient="top"),
+                ),
+                tooltip=[
+                    alt.Tooltip("nutrient:N"),
+                    alt.Tooltip("source:N"),
+                    alt.Tooltip("value:Q", format=".2f"),
+                ],
+            )
+        )
+        line_df = pd.DataFrame(
+            [
+                {"nutrient": NUTRIENT_LABELS[n], "value": data["needs"][n],
+                 "kind": "Min requirement", "source": s}
+                for n in NUTRIENTS for s in ("You", "Optimal")
+            ]
+        )
+        rules = (
+            alt.Chart(line_df)
+            .mark_line(strokeWidth=3, strokeCap="round")
+            .encode(
+                x=alt.X("nutrient:N", sort=nutrient_order),
+                xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
+                y="value:Q",
+                detail="nutrient:N",
+                color=alt.Color(
+                    "kind:N",
+                    scale=alt.Scale(domain=["Min requirement"], range=["#dc2626"]),
+                    legend=alt.Legend(title=None, symbolType="stroke", symbolStrokeWidth=3, orient="top"),
+                ),
+                tooltip=[alt.Tooltip("value:Q", title="Min requirement")],
+            )
+        )
+        chart = (bars + rules).resolve_scale(color="independent").properties(height=240)
+        st.altair_chart(chart, width="stretch")
+
     with opt_col:
-        # Right half: vertical sliders showing the solver's x_f values.
-        # Colored green to visually mark them as informational. Values are
-        # rounded to step precision so the floating point thumb badge does
-        # not show a long fraction.
+        # Right column: vertical sliders showing the solver's x_f values.
+        # Colored green so they read as informational.
         if optimal and optimal["status"] == "optimal":
             st.markdown("**Optimal diet**")
             opt_x = optimal["x"]
-            food_cols = st.columns(len(data["foods"]))
+            food_cols = st.columns(len(data["foods"]), gap="small")
             for c, f in zip(food_cols, data["foods"]):
                 ub = slider_upper_bound(f, data)
                 val = float(opt_x.get(f, 0.0))
-                # Clamp into [0, ub] so the bar fill height matches what the
-                # user slider would show for the same value, and round to one
-                # decimal place to match the step.
+                # Clamp into [0, ub] and round to one decimal place so the
+                # thumb badge does not show a long float.
                 val = round(max(0.0, min(val, ub)), 1)
                 with c:
                     vertical_slider(
@@ -680,118 +751,30 @@ def render_optimizer_tab():
                 "**Optimal diet**"
                 " <span style='color: rgba(49,51,63,0.6); font-size: 0.85rem;"
                 " margin-left: 0.5rem;'>"
-                "Click Run Optimizer to see the optimal diet.</span>",
+                "Click Run Optimizer.</span>",
                 unsafe_allow_html=True,
             )
 
-    # Read the user sliders and compute the user cost AFTER the widgets have
-    # written their values back into session_state above.
-    slider_vals = current_slider_values()
-    user_cost = cost_of(slider_vals, data)
-
     st.divider()
 
-    # Nutrient bar chart + cost metrics below the slider banks. Two columns
-    # so the chart and metrics share the page horizontally.
-    chart_col, _ = st.columns([1, 1])
-    with chart_col:
-        # Right column: a grouped bar chart of nutrient totals (You vs
-        # Optimal), short red rules across each bar pair showing the
-        # required minimum, and two cost metrics underneath.
+    # Two cost metrics centered below the 3 column body. Color the user
+    # cost green if it matches the optimum within a cent, red otherwise.
+    _, m1, m2, _ = st.columns([3, 1, 1, 3])
+    if optimal and optimal["status"] == "optimal":
+        opt_cost = float(optimal["cost"])
+        matches = abs(user_cost - opt_cost) < 0.01
+        your_color = "#16a34a" if matches else "#dc2626"
+        opt_color = "#16a34a"
+        opt_value = f"{opt_cost:.2f}"
+    else:
+        your_color = None
+        opt_color = None
+        opt_value = "—"
 
-        # One row per (nutrient, source) for the bars.
-        user_totals = nutrient_totals(slider_vals, data)
-        rows = [
-            {"nutrient": NUTRIENT_LABELS[n], "source": "You", "value": user_totals[n]}
-            for n in NUTRIENTS
-        ]
-        if optimal and optimal["status"] == "optimal":
-            opt_totals = nutrient_totals(optimal["x"], data)
-            rows.extend(
-                {"nutrient": NUTRIENT_LABELS[n], "source": "Optimal", "value": opt_totals[n]}
-                for n in NUTRIENTS
-            )
-
-        chart_df = pd.DataFrame(rows)
-        req_df = pd.DataFrame(
-            [{"nutrient": NUTRIENT_LABELS[n], "value": data["needs"][n], "kind": "Min requirement"}
-             for n in NUTRIENTS]
-        )
-
-        # Display order on the x-axis matches the NUTRIENTS list.
-        nutrient_order = [NUTRIENT_LABELS[n] for n in NUTRIENTS]
-
-        # Layer 1: grouped bars. `xOffset` encoding produces side-by-side
-        # bars for the two sources within each nutrient group.
-        bars = (
-            alt.Chart(chart_df)
-            .mark_bar()
-            .encode(
-                x=alt.X("nutrient:N", sort=nutrient_order, title=None),
-                xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
-                y=alt.Y("value:Q", title="Total nutrient amount"),
-                color=alt.Color(
-                    "source:N",
-                    scale=alt.Scale(domain=["You", "Optimal"], range=["#4C78A8", "#54A24B"]),
-                    legend=alt.Legend(title=None),
-                ),
-                tooltip=[
-                    alt.Tooltip("nutrient:N"),
-                    alt.Tooltip("source:N"),
-                    alt.Tooltip("value:Q", format=".2f"),
-                ],
-            )
-        )
-        # Layer 2: horizontal segments showing the minimum requirement for
-        # each nutrient. Two endpoints per nutrient (one above each bar in
-        # the pair) connected by a thick line, using the same xOffset scale
-        # so the segment lines up with the two bars.
-        line_df = pd.DataFrame(
-            [
-                {"nutrient": NUTRIENT_LABELS[n], "value": data["needs"][n],
-                 "kind": "Min requirement", "source": s}
-                for n in NUTRIENTS for s in ("You", "Optimal")
-            ]
-        )
-        rules = (
-            alt.Chart(line_df)
-            .mark_line(strokeWidth=5, strokeCap="round")
-            .encode(
-                x=alt.X("nutrient:N", sort=nutrient_order),
-                xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
-                y="value:Q",
-                detail="nutrient:N",
-                color=alt.Color(
-                    "kind:N",
-                    scale=alt.Scale(domain=["Min requirement"], range=["#dc2626"]),
-                    legend=alt.Legend(title=None, symbolType="stroke", symbolStrokeWidth=3),
-                ),
-                tooltip=[alt.Tooltip("value:Q", title="Min requirement")],
-            )
-        )
-        # `resolve_scale(color="independent")` gives the two layers separate
-        # color scales so the bar legend and rule legend coexist.
-        chart = (bars + rules).resolve_scale(color="independent").properties(height=380)
-        st.altair_chart(chart, width="stretch")
-
-        # Two cost metrics centered under the chart. Color the user's cost
-        # green if it matches the optimum (within $0.01), red otherwise.
-        _, m1, m2, _ = st.columns([1, 1, 1, 1])
-        if optimal and optimal["status"] == "optimal":
-            opt_cost = float(optimal["cost"])
-            matches = abs(user_cost - opt_cost) < 0.01
-            your_color = "#16a34a" if matches else "#dc2626"
-            opt_color = "#16a34a"
-            opt_value = f"{opt_cost:.2f}"
-        else:
-            your_color = None
-            opt_color = None
-            opt_value = "—"
-
-        with m1:
-            colored_metric("Your cost", f"{user_cost:.2f}", your_color)
-        with m2:
-            colored_metric("Optimal cost", opt_value, opt_color)
+    with m1:
+        colored_metric("Your cost", f"{user_cost:.2f}", your_color)
+    with m2:
+        colored_metric("Optimal cost", opt_value, opt_color)
 
 
 # ---------- Main ----------
