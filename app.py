@@ -846,7 +846,7 @@ def render_optimizer_tab():
         )
         rules = (
             alt.Chart(line_df)
-            .mark_line(strokeWidth=3, strokeCap="round")
+            .mark_line(strokeWidth=2, strokeDash=[3, 3], strokeCap="butt")
             .encode(
                 x=alt.X("nutrient:N", sort=nutrient_order),
                 xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
