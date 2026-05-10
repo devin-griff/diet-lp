@@ -42,6 +42,7 @@ import streamlit as st
 from pyomo.common.errors import ApplicationError
 from pyomo.common.tee import capture_output
 from pyomo.opt import TerminationCondition
+from streamlit_vertical_slider import vertical_slider
 
 
 # ---------- Solver ----------
@@ -545,85 +546,154 @@ def render_logs_tab():
 
 
 def render_optimizer_tab():
-    # Layout: two equal-width columns. Left has controls (buttons + per-food
-    # sliders); right has a grouped bar chart and the cost metrics.
+    # Layout (top to bottom):
+    #   1. Action buttons (Run Optimizer, Set at Optimum)
+    #   2. Status banner if the last run was not optimal
+    #   3. Side by side: "Your diet" (interactive vertical sliders) on the
+    #      left, "Optimal diet" (read only vertical sliders) on the right.
+    #      One vertical slider per food in each half.
+    #   4. Nutrient bar chart + cost metrics below the slider banks.
     data = st.session_state.data
     if not data["foods"]:
         st.info("Add at least one food on the Data tab.")
         return
 
-    controls_col, chart_col = st.columns([1, 1])
-
-    with controls_col:
-        # Two action buttons side-by-side.
-        b1, b2 = st.columns(2)
-        run_clicked = b1.button("Run Optimizer", width="stretch")
-        if run_clicked:
-            # Solve and stash the dict result in session_state so subsequent
-            # reruns keep showing it.
+    # Action row. Narrow on the left so the buttons stay compact.
+    act1, act2, _ = st.columns([1, 1, 6])
+    with act1:
+        if st.button("Run Optimizer", width="stretch", key="run_btn"):
             st.session_state.optimal = solve(data)
-
-        optimal = st.session_state.optimal
+    optimal = st.session_state.optimal
+    with act2:
         set_disabled = not (optimal and optimal["status"] == "optimal")
-        if b2.button("Set at Optimum", width="stretch", disabled=set_disabled):
-            # Copy the optimal x_f values into the sliders. Each slider is
-            # clamped to its own upper bound to avoid out-of-range errors.
-            # `st.rerun()` forces an immediate redraw with the new slider
-            # values.
+        if st.button(
+            "Set at Optimum",
+            width="stretch",
+            disabled=set_disabled,
+            key="set_opt_btn",
+        ):
+            # Copy the optimal x_f values into the user sliders. Each slider
+            # is clamped to its own upper bound so the widget never receives
+            # an out of range value.
             for f in data["foods"]:
                 ub = slider_upper_bound(f, data)
                 val = float(optimal["x"].get(f, 0.0))
                 st.session_state[slider_key(f)] = max(0.0, min(val, ub))
             st.rerun()
 
-        # Inline status messages for non-optimal solver outcomes.
-        if optimal:
-            if optimal["status"] == "solver_missing":
-                st.error(optimal["message"])
-            elif optimal["status"] == "infeasible":
-                st.error("Infeasible — no diet satisfies the requirements with this data.")
-            elif optimal["status"] == "unbounded":
-                st.error("Unbounded problem.")
-            elif optimal["status"] not in ("optimal", "no_foods"):
-                st.error(f"Solver returned: {optimal['status']}")
+    # Inline status messages for non optimal solver outcomes.
+    if optimal:
+        if optimal["status"] == "solver_missing":
+            st.error(optimal["message"])
+        elif optimal["status"] == "infeasible":
+            st.error("Infeasible. No diet satisfies the requirements with this data.")
+        elif optimal["status"] == "unbounded":
+            st.error("Unbounded problem.")
+        elif optimal["status"] not in ("optimal", "no_foods"):
+            st.error(f"Solver returned: {optimal['status']}")
 
-        # One slider per food. Each slider's max depends on the current
-        # data: if the user shrinks a nutrient requirement, an existing
-        # slider value might exceed the new upper bound — clamp it before
-        # constructing the widget so Streamlit doesn't raise.
+    # Clamp every slider key before any vertical_slider call so widgets
+    # never receive an out of range value when the user shrinks a
+    # requirement.
+    for f in data["foods"]:
+        ub = slider_upper_bound(f, data)
+        key = slider_key(f)
+        existing = float(st.session_state.get(key, 0.0))
+        preserved = max(0.0, min(existing, ub))
+        if existing != preserved:
+            st.session_state[key] = preserved
+
+    # Two halves side by side: Your diet on the left, Optimal diet on the
+    # right. Each half holds a row of vertical sliders, one per food.
+    your_col, opt_col = st.columns([1, 1])
+
+    with your_col:
         st.markdown("**Your diet**")
-        for f in data["foods"]:
+        food_cols = st.columns(len(data["foods"]))
+        for c, f in zip(food_cols, data["foods"]):
             ub = slider_upper_bound(f, data)
             key = slider_key(f)
-            existing = float(st.session_state.get(key, 0.0))
-            preserved = max(0.0, min(existing, ub))
-            if existing != preserved:
-                st.session_state[key] = preserved
-            # Slider label includes price plus per-unit nutrient content for
-            # the food, so the user can reason about each food's tradeoff
-            # without flipping to the Data tab.
-            nutrient_parts = [
-                f"{NUTRIENT_LABELS.get(n, n).lower()} {data['content'][(f, n)]:g}"
-                for n in data["nutrients"]
-            ]
-            label_str = (
-                f"{f}  (price {data['price'][f]:g}, "
-                + ", ".join(nutrient_parts)
-                + ")"
-            )
-            st.slider(
-                label_str,
-                min_value=0.0,
-                max_value=float(ub),
-                value=preserved,
-                step=0.1,
-                key=key,
+            current = float(st.session_state.get(key, 0.0))
+            with c:
+                new_val = vertical_slider(
+                    label=f,
+                    key=f"v_{key}",
+                    height=220,
+                    default_value=current,
+                    min_value=0.0,
+                    max_value=float(ub),
+                    step=0.1,
+                    slider_color="#FF4B4B",
+                    track_color="#E5E9F1",
+                    thumb_color="#FF4B4B",
+                    value_always_visible=True,
+                )
+                # Mirror the vertical slider value back into the canonical
+                # slider_<food> session key so the rest of the app (chart,
+                # cost, Set at Optimum copy back) keeps working unchanged.
+                if new_val is not None:
+                    st.session_state[key] = float(new_val)
+                # Per food caption with price and per unit nutrient content
+                # so the user can reason about tradeoffs without flipping
+                # to the Data tab.
+                nutrient_parts = [
+                    f"{NUTRIENT_LABELS.get(n, n).lower()[:3]} {data['content'][(f, n)]:g}"
+                    for n in data["nutrients"]
+                ]
+                st.caption(
+                    f"${data['price'][f]:g} · " + " · ".join(nutrient_parts)
+                )
+
+    with opt_col:
+        # Right half: vertical sliders showing the solver's x_f values.
+        # Colored green to visually mark them as informational. Values are
+        # rounded to step precision so the floating point thumb badge does
+        # not show a long fraction.
+        if optimal and optimal["status"] == "optimal":
+            st.markdown("**Optimal diet**")
+            opt_x = optimal["x"]
+            food_cols = st.columns(len(data["foods"]))
+            for c, f in zip(food_cols, data["foods"]):
+                ub = slider_upper_bound(f, data)
+                val = float(opt_x.get(f, 0.0))
+                # Clamp into [0, ub] so the bar fill height matches what the
+                # user slider would show for the same value, and round to one
+                # decimal place to match the step.
+                val = round(max(0.0, min(val, ub)), 1)
+                with c:
+                    vertical_slider(
+                        label=f,
+                        key=f"opt_v_{f}",
+                        height=220,
+                        default_value=val,
+                        min_value=0.0,
+                        max_value=float(ub),
+                        step=0.1,
+                        slider_color="#54A24B",
+                        track_color="#E5E9F1",
+                        thumb_color="#54A24B",
+                        value_always_visible=True,
+                    )
+                    st.caption(f"x = {val:.2f}")
+        else:
+            st.markdown(
+                "**Optimal diet**"
+                " <span style='color: rgba(49,51,63,0.6); font-size: 0.85rem;"
+                " margin-left: 0.5rem;'>"
+                "Click Run Optimizer to see the optimal diet.</span>",
+                unsafe_allow_html=True,
             )
 
-        # Read the current sliders and compute the user's cost.
-        slider_vals = current_slider_values()
-        user_cost = cost_of(slider_vals, data)
+    # Read the user sliders and compute the user cost AFTER the widgets have
+    # written their values back into session_state above.
+    slider_vals = current_slider_values()
+    user_cost = cost_of(slider_vals, data)
 
+    st.divider()
+
+    # Nutrient bar chart + cost metrics below the slider banks. Two columns
+    # so the chart and metrics share the page horizontally.
+    chart_col, _ = st.columns([1, 1])
     with chart_col:
         # Right column: a grouped bar chart of nutrient totals (You vs
         # Optimal), short red rules across each bar pair showing the
