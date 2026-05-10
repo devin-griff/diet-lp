@@ -903,9 +903,10 @@ st.set_page_config(page_title="Diet LP Optimizer", page_icon="favicon.png", layo
 init_state()
 
 # Tighten the top of the main block so the title sits closer to the page top
-# and the tabs are visible without scrolling. The minimum here is determined
-# by Streamlit's sticky header (~3.75rem); going smaller hides the title
-# underneath it.
+# and the tabs are visible without scrolling. 2.5rem clears the sticky header
+# (running-script spinner + «« sidebar toggle in the top-right) without hiding
+# the title underneath it. Same value used across the template family — see
+# griffith-pse-app-template/app.py.
 st.markdown(
     """
     <style>
