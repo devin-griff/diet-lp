@@ -836,14 +836,20 @@ def render_optimizer_tab():
         nutrient_order = [NUTRIENT_LABELS[n] for n in NUTRIENTS]
 
         # `size=14` thickens each bar so the four nutrient groups read as
-        # solid columns rather than thin sticks; still narrow enough that
-        # the You/Optimal pairs don't run into each other.
+        # solid columns rather than thin sticks. `paddingInner=0` on the
+        # xOffset scale pulls the You/Optimal pair together inside each
+        # nutrient slot so they read as a pair rather than two unrelated
+        # bars.
         bars = (
             alt.Chart(chart_df)
             .mark_bar(size=14)
             .encode(
                 x=alt.X("nutrient:N", sort=nutrient_order, title=None),
-                xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
+                xOffset=alt.XOffset(
+                    "source:N",
+                    sort=["You", "Optimal"],
+                    scale=alt.Scale(paddingInner=0),
+                ),
                 y=alt.Y("value:Q", title="Total nutrient"),
                 color=alt.Color(
                     "source:N",
