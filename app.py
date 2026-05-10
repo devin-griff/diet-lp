@@ -629,6 +629,15 @@ def render_optimizer_tab():
     with act1:
         if st.button("Run Optimizer", width="stretch", key="run_btn"):
             st.session_state.optimal = solve(data)
+            # Bump so the components.html script DOM-pokes the optimal
+            # slider iframes to the new x_f values, avoiding the reload
+            # flash that comes from remounting on each solve. The slider's
+            # color (gray pre-solve, green post-solve) still relies on a
+            # `solved` flag in the component key, so the first solve still
+            # remounts once — subsequent re-solves just animate values.
+            st.session_state.run_optimizer_token = (
+                st.session_state.get("run_optimizer_token", 0) + 1
+            )
     optimal = st.session_state.optimal
     with act2:
         set_disabled = not (optimal and optimal["status"] == "optimal")
@@ -950,14 +959,15 @@ def render_optimizer_tab():
                 val = 0.0
                 color = "#cbd5e1"
             with c:
-                # Key includes val so the component re-mounts and picks up
-                # the new default_value when the optimal solution changes.
-                # The package's JS state otherwise sticks at whatever it
-                # was on first mount, ignoring subsequent default_value
-                # props.
+                # Key suffix is the solved/unsolved state, not the value,
+                # so the component remounts only on the first solve (where
+                # we need the gray -> green color flip). Subsequent value
+                # changes from re-solves are handled by the DOM-poke in
+                # the components.html script, which avoids the iframe
+                # reload flash.
                 vertical_slider(
                     label=f,
-                    key=f"opt_v_{f}_{val:g}",
+                    key=f"opt_v_{f}_{'solved' if solved else 'unsolved'}",
                     height=220,
                     default_value=val,
                     min_value=0.0,
@@ -1017,6 +1027,26 @@ def render_optimizer_tab():
     ]
     optimum_token = st.session_state.get("set_at_optimum_token", 0)
 
+    # Optimal-side values (the LP solution), used to DOM-poke the right
+    # column's iframes when "Run Optimizer" fires a new solve.
+    if optimal and optimal["status"] == "optimal":
+        optimal_x_values = [
+            round(
+                max(
+                    0.0,
+                    min(
+                        float(optimal["x"].get(f, 0.0)),
+                        slider_upper_bound(f, data),
+                    ),
+                ),
+                1,
+            )
+            for f in data["foods"]
+        ]
+    else:
+        optimal_x_values = [0.0] * len(data["foods"])
+    run_token = st.session_state.get("run_optimizer_token", 0)
+
     components.html(
         f"""
         <script>
@@ -1024,6 +1054,8 @@ def render_optimizer_tab():
             var userTooltips = {json.dumps(user_tooltips)};
             var optimumValues = {json.dumps(optimum_values)};
             var optimumToken = {json.dumps(optimum_token)};
+            var optimalXValues = {json.dumps(optimal_x_values)};
+            var runToken = {json.dumps(run_token)};
             var doc = window.parent.document;
             function disableSelectionInside(iframe) {{
                 // Inject styles into the iframe's own document. Parent-page
@@ -1110,6 +1142,37 @@ def render_optimizer_tab():
                 applyOptimumValues();
                 setTimeout(applyOptimumValues, 120);
                 window.parent.__dietOptimumTokenSeen = optimumToken;
+            }}
+
+            // "Run Optimizer" path: same DOM-poke technique applied to
+            // the optimal-side iframes (indices N..2N-1). The slider
+            // package's color props don't update after first mount, so
+            // the Python side still remounts on the very first solve
+            // (when the slider goes gray -> green); after that, value
+            // updates flow through this poke without a reload.
+            function applyOptimalXValues() {{
+                var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
+                var n = optimalXValues.length;
+                for (var i = 0; i < n && (i + n) < iframes.length; i++) {{
+                    try {{
+                        var inner = iframes[i + n].contentDocument;
+                        if (!inner) continue;
+                        var input = inner.querySelector('input[type=range]');
+                        if (!input) continue;
+                        var proto = iframes[i + n].contentWindow.HTMLInputElement.prototype;
+                        var nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                        nativeSetter.call(input, String(optimalXValues[i]));
+                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        input.blur();
+                    }} catch (e) {{ /* iframe not ready yet */ }}
+                }}
+            }}
+            if (runToken > 0
+                && window.parent.__dietRunTokenSeen !== runToken) {{
+                applyOptimalXValues();
+                setTimeout(applyOptimalXValues, 120);
+                window.parent.__dietRunTokenSeen = runToken;
             }}
 
             apply();
