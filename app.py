@@ -670,9 +670,9 @@ def render_optimizer_tab():
     )
 
     # Three column body: Your diet (left), nutrient chart (middle), Optimal
-    # diet (right). Tight gap on the slider sub columns so the six vertical
-    # sliders per side stay compact.
-    your_col, chart_col, opt_col = st.columns([5, 3, 5])
+    # diet (right). [4,4,4] gives the chart more horizontal room and pulls
+    # the six slider sub-columns tighter together on each side.
+    your_col, chart_col, opt_col = st.columns([4, 4, 4])
 
     with your_col:
         st.markdown("**Your diet**")
@@ -788,10 +788,12 @@ def render_optimizer_tab():
                 tooltip=[alt.Tooltip("value:Q", title="Min requirement")],
             )
         )
-        # Chart height tuned to match the slider band (slider 220 + label
-        # rows above and below ~= 260 visible) so the chart bottom aligns
-        # with the bottom of the food labels in the flanking columns.
-        chart = (bars + rules).resolve_scale(color="independent").properties(height=260)
+        # Chart height matches the slider band visually. The vertical
+        # slider iframe is 298px tall (slider 220 + value badge + max/min
+        # number labels + food name label), so set the chart height to
+        # roughly the same so the bars span the same vertical extent as
+        # the sliders flanking the chart.
+        chart = (bars + rules).resolve_scale(color="independent").properties(height=300)
         st.altair_chart(chart, width="stretch")
 
     with opt_col:
@@ -852,14 +854,14 @@ def render_optimizer_tab():
     nutrient_label_short = {"P": "Prot", "C": "Carb", "F": "Fat", "V": "Vit"}
     user_tooltips = []
     for f in data["foods"]:
-        # Split nutrients across two lines so the tooltip is roughly square
-        # rather than a very wide single line. Break point is between Carb
-        # and Fat (first half of NUTRIENTS goes on line 1, second half on
-        # line 2). The CSS rule above sets `white-space: pre-line` so the
-        # literal \n character is rendered as a line break.
+        # Tooltip shows price and nutrient density per unit. Food name is
+        # already visible as the slider's own label so we don't repeat it
+        # here. Split between Carb and Fat so the tooltip is two short
+        # lines instead of one long one. The CSS rule above sets
+        # `white-space: pre-line` so the literal \n is rendered as a break.
         n_list = list(data["nutrients"])
         mid = len(n_list) // 2  # 2 for the default [P, C, F, V]
-        line1_parts = [f, f"${data['price'][f]:g}"] + [
+        line1_parts = [f"${data['price'][f]:g}"] + [
             f"{nutrient_label_short.get(n, n)} {data['content'][(f, n)]:g}"
             for n in n_list[:mid]
         ]
