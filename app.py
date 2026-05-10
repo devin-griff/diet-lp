@@ -619,18 +619,45 @@ def render_optimizer_tab():
         """
         <style>
         /* Tighten the gap between food sub-columns in any horizontal block
-         * that holds vertical_slider iframes. The iframe's title attribute
-         * is the only stable hook (no data-testid on the wrapper). */
-        div[data-testid="stHorizontalBlock"]:has(iframe[title*="vertical_slider"]) {
+         * that holds an iframe (vertical sliders are the only iframes
+         * inside columnar blocks on this page). */
+        div[data-testid="stHorizontalBlock"]:has(iframe) {
             gap: 0 !important;
         }
         /* Streamlit renders st.markdown as a sibling, not a parent — so the
          * .optimal-diet-bank marker div sits next to the iframes inside the
          * right column. We target the enclosing stColumn that has the
          * marker as a descendant, then disable pointer events on every
-         * vertical_slider iframe inside that column. */
-        [data-testid="stColumn"]:has(.optimal-diet-bank) iframe[title*="vertical_slider"] {
+         * iframe inside that column so the optimal sliders are read only.
+         * Selector does NOT depend on the iframe title (which we rewrite
+         * elsewhere via JS) so the rule keeps applying after that rewrite. */
+        [data-testid="stColumn"]:has(.optimal-diet-bank) iframe {
             pointer-events: none;
+        }
+        /* Custom hover tooltip on user-side food sub-columns. Native iframe
+         * title tooltips fire unreliably because the inner React content
+         * consumes the hover; CSS :hover on the parent column does fire
+         * whenever the mouse is anywhere over the column's bounding box,
+         * iframe included. The text comes from a data-tooltip attribute
+         * that the script below writes onto each user-side column. */
+        [data-tooltip] {
+            position: relative;
+        }
+        [data-tooltip]:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 50%;
+            top: 100%;
+            transform: translateX(-50%);
+            background: rgba(17, 24, 39, 0.92);
+            color: #f9fafb;
+            padding: 0.35rem 0.55rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            z-index: 1000;
+            pointer-events: none;
+            margin-top: 0.35rem;
         }
         </style>
         """,
@@ -807,13 +834,18 @@ def render_optimizer_tab():
         # it visually pairs with the optimal slider bank.
         colored_metric("Optimal cost", opt_value, opt_color, align="left")
 
-    # Tie hover tooltips to the slider iframes themselves. The vertical_slider
-    # package renders each slider inside an iframe whose own `title` attribute
-    # becomes a native browser tooltip on hover. We override that title via
-    # a script (which Streamlit's markdown sanitizer strips, but components.html
-    # allows) executed in a same-origin child iframe so it can reach
-    # `window.parent.document`. A MutationObserver re-applies the titles after
-    # every DOM change so reruns and slider re-mounts do not lose them.
+    # Wire up hover tooltips on the USER side only. Each user slider's
+    # parent food sub-column (stColumn) gets a `data-tooltip` attribute;
+    # the CSS rule above renders a custom badge via `:hover::after`. Native
+    # `iframe[title]` tooltips fire unreliably when the iframe content is
+    # interactive, so we don't go that route here. The optimal side gets
+    # no tooltip (already explained inline via the gray/green colors).
+    #
+    # Streamlit's markdown sanitizer strips <script>, so we run the
+    # attribute injection inside a same-origin components.html iframe that
+    # reaches into window.parent.document. A MutationObserver re-applies
+    # after every DOM mutation so Streamlit reruns and slider re-mounts
+    # do not lose the attribute.
     user_tooltips = [
         f"{f}  ·  ${data['price'][f]:g} per unit  ·  "
         + " ".join(
@@ -822,36 +854,31 @@ def render_optimizer_tab():
         )
         for f in data["foods"]
     ]
-    opt_tooltips = []
-    if optimal and optimal["status"] == "optimal":
-        for f in data["foods"]:
-            ub = slider_upper_bound(f, data)
-            val = round(max(0.0, min(float(optimal["x"].get(f, 0.0)), ub)), 1)
-            opt_tooltips.append(f"{f}  ·  optimal x = {val:g}")
-    else:
-        opt_tooltips = [f"{f}  ·  Run Optimizer to see x" for f in data["foods"]]
 
     components.html(
         f"""
         <script>
         (function() {{
             var userTooltips = {json.dumps(user_tooltips)};
-            var optTooltips = {json.dumps(opt_tooltips)};
             var doc = window.parent.document;
             function apply() {{
-                var iframes = doc.querySelectorAll('iframe[title*=vertical_slider], iframe[data-tooltip-applied]');
+                // The user-side slider iframes are the FIRST batch of
+                // streamlit_vertical_slider iframes on the page (followed
+                // by the optimal-side iframes). Walk up from each to its
+                // enclosing stColumn (the food sub-column) and stamp
+                // data-tooltip on it.
+                var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
                 var n = userTooltips.length;
-                for (var i = 0; i < iframes.length; i++) {{
-                    var t = i < n ? userTooltips[i] : optTooltips[i - n];
-                    if (t !== undefined) {{
-                        iframes[i].title = t;
-                        iframes[i].setAttribute('data-tooltip-applied', '1');
+                for (var i = 0; i < n && i < iframes.length; i++) {{
+                    var col = iframes[i].closest('[data-testid="stColumn"]');
+                    if (col) {{
+                        col.setAttribute('data-tooltip', userTooltips[i]);
                     }}
                 }}
             }}
             apply();
-            if (window.parent.__sliderTooltipObserver) {{
-                window.parent.__sliderTooltipObserver.disconnect();
+            if (window.parent.__dietTooltipObserver) {{
+                window.parent.__dietTooltipObserver.disconnect();
             }}
             var timeout;
             var observer = new MutationObserver(function() {{
@@ -859,9 +886,7 @@ def render_optimizer_tab():
                 timeout = setTimeout(apply, 50);
             }});
             observer.observe(doc.body, {{childList: true, subtree: true}});
-            window.parent.__sliderTooltipObserver = observer;
-            window.parent.__sliderTooltipsUser = userTooltips;
-            window.parent.__sliderTooltipsOpt = optTooltips;
+            window.parent.__dietTooltipObserver = observer;
         }})();
         </script>
         """,
