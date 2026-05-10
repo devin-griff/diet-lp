@@ -639,12 +639,21 @@ def render_optimizer_tab():
             key="set_opt_btn",
         ):
             # Copy the optimal x_f values into the user sliders. Each slider
-            # is clamped to its own upper bound so the widget never receives
-            # an out of range value.
+            # is clamped to its own upper bound, then rounded to match the
+            # step=0.1 of the user sliders (otherwise the value badge shows
+            # full-precision floats like 1.62878787878). Bumping
+            # `user_slider_version` rotates the component keys so the
+            # vertical_slider iframes re-mount and actually pick up the new
+            # default_value — the package ignores subsequent default_value
+            # prop changes once mounted.
             for f in data["foods"]:
                 ub = slider_upper_bound(f, data)
                 val = float(optimal["x"].get(f, 0.0))
-                st.session_state[slider_key(f)] = max(0.0, min(val, ub))
+                clamped = max(0.0, min(val, ub))
+                st.session_state[slider_key(f)] = round(clamped, 1)
+            st.session_state.user_slider_version = (
+                st.session_state.get("user_slider_version", 0) + 1
+            )
             st.rerun()
 
     # Inline status messages for non optimal solver outcomes.
@@ -754,7 +763,11 @@ def render_optimizer_tab():
             key = slider_key(f)
             current = float(st.session_state.get(key, 0.0))
             with c:
-                component_key = f"v_{key}"
+                # Version suffix forces re-mount when "Set at Optimum"
+                # bumps the counter; otherwise the component's JS state
+                # ignores new default_value props.
+                version = st.session_state.get("user_slider_version", 0)
+                component_key = f"v_{key}_{version}"
                 vertical_slider(
                     label=f,
                     key=component_key,
