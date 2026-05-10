@@ -871,11 +871,17 @@ def render_optimizer_tab():
                 ],
             )
         )
+        # Two endpoints per nutrient at pixel offsets that extend slightly
+        # past the bar pair: each bar is 20 px wide and they touch, so the
+        # pair spans -20 .. +20 px from the band center. We endpoint the
+        # rule at -25 / +25 so it overhangs 5 px on each side. Using a
+        # quantitative xOffset (`:Q`) feeds those numbers as raw pixel
+        # offsets rather than going through a band scale.
         line_df = pd.DataFrame(
             [
                 {"nutrient": NUTRIENT_LABELS[n], "value": data["needs"][n],
-                 "kind": "Min requirement", "source": s}
-                for n in NUTRIENTS for s in ("You", "Optimal")
+                 "kind": "Min requirement", "x_off": dx}
+                for n in NUTRIENTS for dx in (-25, 25)
             ]
         )
         rules = (
@@ -883,7 +889,7 @@ def render_optimizer_tab():
             .mark_line(strokeWidth=2, strokeDash=[3, 3], strokeCap="butt")
             .encode(
                 x=alt.X("nutrient:N", sort=nutrient_order),
-                xOffset=alt.XOffset("source:N", sort=["You", "Optimal"]),
+                xOffset=alt.XOffset("x_off:Q"),
                 y="value:Q",
                 detail="nutrient:N",
                 color=alt.Color(
