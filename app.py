@@ -958,15 +958,30 @@ def render_optimizer_tab():
             var userTooltips = {json.dumps(user_tooltips)};
             var doc = window.parent.document;
             function disableSelectionInside(iframe) {{
-                // Inject `user-select: none` into the iframe's own document
-                // (parent-document CSS does not cross iframe boundaries).
-                // Idempotent: skips if a marker stylesheet already exists.
+                // Inject styles into the iframe's own document. Parent-page
+                // CSS does not cross iframe boundaries, so anything that
+                // needs to affect the slider's React-rendered content has
+                // to live here. Two rules:
+                //   1. `user-select: none` everywhere — kills the blue
+                //      selection box when the user drags.
+                //   2. Hide the slider's min-value label. The package
+                //      renders min/max as <label> siblings of the slider
+                //      <span>; `span + label` matches the min label only
+                //      (the max label comes BEFORE the span). visibility:
+                //      hidden keeps its vertical space, so the food-name
+                //      label below it does not shift up onto the thumb.
+                // Idempotent via a marker attribute.
                 try {{
                     var d = iframe.contentDocument;
-                    if (!d || !d.head || d.querySelector('style[data-no-select]')) return;
+                    if (!d || !d.head || d.querySelector('style[data-diet-iframe]')) return;
                     var style = d.createElement('style');
-                    style.setAttribute('data-no-select', '1');
-                    style.textContent = '* {{ -webkit-user-select: none !important; -moz-user-select: none !important; user-select: none !important; }}';
+                    style.setAttribute('data-diet-iframe', '1');
+                    style.textContent = (
+                        '* {{ -webkit-user-select: none !important; ' +
+                        '-moz-user-select: none !important; ' +
+                        'user-select: none !important; }} ' +
+                        'span + label {{ visibility: hidden !important; }}'
+                    );
                     d.head.appendChild(style);
                 }} catch (e) {{ /* cross-origin or not ready */ }}
             }}
