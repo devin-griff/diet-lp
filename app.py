@@ -754,9 +754,10 @@ def render_optimizer_tab():
             key = slider_key(f)
             current = float(st.session_state.get(key, 0.0))
             with c:
-                new_val = vertical_slider(
+                component_key = f"v_{key}"
+                vertical_slider(
                     label=f,
-                    key=f"v_{key}",
+                    key=component_key,
                     height=220,
                     default_value=current,
                     min_value=0.0,
@@ -767,11 +768,16 @@ def render_optimizer_tab():
                     thumb_color="#FF4B4B",
                     value_always_visible=True,
                 )
-                # Mirror the vertical slider value back into the canonical
-                # slider_<food> session key so the rest of the app (chart,
-                # cost, Set at Optimum copy back) keeps working unchanged.
-                if new_val is not None:
-                    st.session_state[key] = float(new_val)
+                # The package's return value is broken for drags to exactly
+                # zero: its source does `return val if val else default`,
+                # so a 0 from the JS frontend gets silently replaced with
+                # the previous default_value. Read the raw component value
+                # from session_state instead — Streamlit's component
+                # machinery stores the actual JS-side value under the
+                # component's key, bypassing the package's falsy check.
+                raw = st.session_state.get(component_key)
+                if raw is not None:
+                    st.session_state[key] = float(raw)
 
     # Read the user sliders and compute the user cost AFTER the left side
     # widgets have written their values back into session_state above.
