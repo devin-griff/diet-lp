@@ -479,39 +479,38 @@ def render_data_tab():
 
 
 def render_formulation_tab():
-    # Static reference math at the top, dynamic instance math at the bottom.
-    # `st.markdown` with `$...$` renders inline LaTeX; `st.latex` renders a
-    # display-style block. The general section is split across a 3-column
-    # grid: the left column stacks Sets/Parameters/Variables (each as a
-    # single markdown block so items stack tightly with no inter-paragraph
-    # margin), the middle column holds the centered objective + constraints,
-    # and the right column is empty padding so the equation lands at the
-    # page midline rather than the right half.
-    st.subheader("General Formulation")
-    left, right, _ = st.columns([1, 1, 1])
-    with left:
-        st.markdown(
-            "**Sets**  \n"
-            r"$\mathcal{F} = \{\text{foods}\}$" "  \n"
-            r"$\mathcal{N} = \{\text{nutrients}\}$"
-        )
-        st.markdown(
-            "**Parameters**  \n"
-            r"$p_i$ price for food option $i \in \mathcal{F}$" "  \n"
-            r"$r_j$ nutrition requirement for nutrient $j \in \mathcal{N}$" "  \n"
-            r"$D_{ij}$ nutrition info for food $i \in \mathcal{F}$ and nutrient $j \in \mathcal{N}$"
-        )
-        st.markdown(
-            "**Variables**  \n"
-            r"$x_i$ amount of food $i \in \mathcal{F}$ eaten or purchased"
-        )
-    with right:
-        # Title + display math in one centered block. Using `$$...$$` inside
-        # st.markdown (rather than st.latex in its own component) lets us wrap
-        # both in a single text-align:center div so the equation lines up
-        # under the centered title.
-        st.markdown(
-            r"""<div style="text-align: center;">
+    # Two sub-tabs (matching pinch-analysis / strip-packing / facility-location):
+    # General (static reference math + pedagogical content) and Instance
+    # (substitutes the user's current foods into the formulation).
+    sub_general, sub_instance = st.tabs(["General", "Instance"])
+
+    with sub_general:
+        # 3-column grid: Sets/Parameters/Variables stacked on the left, the
+        # centered objective + constraints in the middle, empty right padding
+        # so the equation lands at the page midline rather than the right half.
+        left, right, _ = st.columns([1, 1, 1])
+        with left:
+            st.markdown(
+                "**Sets**  \n"
+                r"$\mathcal{F} = \{\text{foods}\}$" "  \n"
+                r"$\mathcal{N} = \{\text{nutrients}\}$"
+            )
+            st.markdown(
+                "**Parameters**  \n"
+                r"$p_i$ price for food option $i \in \mathcal{F}$" "  \n"
+                r"$r_j$ nutrition requirement for nutrient $j \in \mathcal{N}$" "  \n"
+                r"$D_{ij}$ nutrition info for food $i \in \mathcal{F}$ and nutrient $j \in \mathcal{N}$"
+            )
+            st.markdown(
+                "**Variables**  \n"
+                r"$x_i$ amount of food $i \in \mathcal{F}$ eaten or purchased"
+            )
+        with right:
+            # Title + display math in one centered block. `$$...$$` inside
+            # st.markdown (rather than st.latex) lets us wrap both in a single
+            # text-align:center div so the equation lines up under the title.
+            st.markdown(
+                r"""<div style="text-align: center;">
 
 **Objective and Constraints**
 
@@ -524,16 +523,77 @@ x_i \ge 0 \quad \forall i \in \mathcal{F} \quad \text{(lower bounds)}
 $$
 
 </div>""",
-            unsafe_allow_html=True,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("**Stigler's original computation**")
+        st.markdown(
+            "In 1945, economist George Stigler asked: what is the cheapest "
+            "diet that meets every daily nutritional requirement? With nothing "
+            "but paper, pencil, and \"a shrewd hunch about the products that "
+            "should appear in the optimal diet\" (his words), he found a nine "
+            "food combination costing \\$39.93 per year in 1939 dollars."
+        )
+        st.markdown(
+            "Two years later, George Dantzig invented the simplex method and "
+            "the diet problem became one of the first LPs ever solved by "
+            "computer. The true LP optimum came out to \\$39.69 per year. "
+            "Stigler's hand calculation was off by 0.6%."
+        )
+        st.markdown(
+            "His hunch was almost optimal. He had no way to prove it though. "
+            "An exact LP solver gives you certified optimality. A heuristic "
+            "just gives you a number."
         )
 
-    st.divider()
-    st.subheader("Instance Formulation")
-    data = st.session_state.data
-    if not data["foods"]:
-        st.info("Add at least one food on the Data tab.")
-        return
-    st.latex(build_instance_latex(data))
+        st.markdown("**Solution method**")
+        st.markdown(
+            "Solved as an LP via the simplex method, the algorithm Dantzig "
+            "invented to solve this exact problem. HiGHS uses dual simplex "
+            "by default, with an interior point alternative for very large "
+            "instances. For a problem this size (a few foods times a few "
+            "nutrients), the solve completes in microseconds. Most of what "
+            "you see in the UI is Streamlit's render overhead."
+        )
+        st.markdown(
+            "HiGHS is a modern open source LP/MIP solver from Edinburgh's "
+            "ERGO group, distributed as a pip wheel via `highspy`."
+        )
+
+        st.markdown("**Companion notebook**")
+        st.markdown(
+            "See the [companion Jupyter notebook]"
+            "(https://github.com/devin-griff/diet_lp/blob/main/diet.ipynb) "
+            "for the Pyomo implementation."
+        )
+
+        st.markdown("**References**")
+        st.markdown(
+            "[1] G. J. Stigler, \"The Cost of Subsistence,\" "
+            "*Journal of Farm Economics*, vol. 27, no. 2, pp. 303–314, 1945. "
+            "[JSTOR](https://www.jstor.org/stable/1231810)"
+        )
+        st.markdown(
+            "[2] G. B. Dantzig, \"The Diet Problem,\" "
+            "*Interfaces*, vol. 20, no. 4, pp. 43–47, 1990. "
+            "[INFORMS](https://pubsonline.informs.org/doi/abs/10.1287/inte.20.4.43)"
+        )
+        st.markdown(
+            "[3] Q. Huangfu and J. A. J. Hall, \"Parallelizing the dual "
+            "revised simplex method,\" *Mathematical Programming Computation*, "
+            "vol. 10, no. 1, pp. 119–142, 2018. "
+            "[Springer](https://link.springer.com/article/10.1007/s12532-017-0130-5)"
+        )
+
+    with sub_instance:
+        st.markdown(
+            "The current instance, with values configured on the **Data** tab:"
+        )
+        data = st.session_state.data
+        if not data["foods"]:
+            st.info("Add at least one food on the Data tab.")
+            return
+        st.latex(build_instance_latex(data))
 
 
 def render_logs_tab():

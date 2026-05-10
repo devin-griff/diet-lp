@@ -2,7 +2,9 @@
 
 A Streamlit app for the classic diet linear program (Pyomo + HiGHS): minimize
 food cost subject to nutrient minimums. Tune your diet with sliders; compare
-cost against the LP optimum.
+cost against the LP optimum. The **📐 Formulation** tab in the app walks
+through Stigler's 1945 hand calculation, Dantzig's LP improvement, and the
+references. See [References](#references) below.
 
 **Live demo:** https://diet.griffith-pse.com  
 **Home:** https://griffith-pse.com
@@ -34,3 +36,18 @@ auto-stop machines. Custom domain wired through Cloudflare DNS.
 - `requirements.txt` — Python deps
 - `Dockerfile`, `fly.toml`, `.dockerignore` — Fly.io production image config
 - `.github/workflows/deploy.yml` — auto-deploy pipeline
+
+## References
+
+[1] G. J. Stigler, "The Cost of Subsistence," *Journal of Farm Economics*,
+vol. 27, no. 2, pp. 303–314, 1945.
+[JSTOR](https://www.jstor.org/stable/1231810)
+
+[2] G. B. Dantzig, "The Diet Problem," *Interfaces*, vol. 20, no. 4,
+pp. 43–47, 1990.
+[INFORMS](https://pubsonline.informs.org/doi/abs/10.1287/inte.20.4.43)
+
+[3] Q. Huangfu and J. A. J. Hall, "Parallelizing the dual revised simplex
+method," *Mathematical Programming Computation*, vol. 10, no. 1,
+pp. 119–142, 2018.
+[Springer](https://link.springer.com/article/10.1007/s12532-017-0130-5)
