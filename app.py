@@ -855,7 +855,13 @@ def render_optimizer_tab():
                 color=alt.Color(
                     "kind:N",
                     scale=alt.Scale(domain=["Min requirement"], range=["#dc2626"]),
-                    legend=alt.Legend(title=None, symbolType="stroke", symbolStrokeWidth=3, orient="top"),
+                    legend=alt.Legend(
+                        title=None,
+                        symbolType="stroke",
+                        symbolStrokeWidth=2,
+                        symbolDash=[3, 3],
+                        orient="top",
+                    ),
                 ),
                 tooltip=[alt.Tooltip("value:Q", title="Min requirement")],
             )
