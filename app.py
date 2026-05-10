@@ -541,12 +541,6 @@ $$
             "computer. The true LP optimum came out to \\$39.69 per year. "
             "Stigler's hand calculation was off by 0.6%."
         )
-        st.markdown(
-            "His hunch was almost optimal. He had no way to prove it though. "
-            "An exact LP solver gives you certified optimality. A heuristic "
-            "just gives you a number."
-        )
-
         st.markdown("**Solution method**")
         st.markdown(
             "Solved as an LP via the simplex method, the algorithm Dantzig "
