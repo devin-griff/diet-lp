@@ -437,6 +437,13 @@ def colored_metric(label, value, color, align="left"):
 # Optimizer is the main interactive view (defined last in this file).
 
 def render_data_tab():
+    # The Apply / Reset action row and pending-edits banner live at the top
+    # of the tab so they're always visible. They depend on whether the
+    # current widget state differs from `st.session_state.data`, which we
+    # only know after rendering the input widgets below. `st.container()`
+    # reserves the slot now; we fill it once `new_data` is computed.
+    top_slot = st.container()
+
     # Top: four side-by-side number inputs for nutrient minimums (r_n).
     # Each is bound to a `need_<n>` session_state key so `apply_reset` can
     # seed it.
@@ -484,37 +491,53 @@ def render_data_tab():
         warnings.append("Duplicate food names were dropped (kept the first).")
 
     new_data = df_to_data(edited, new_needs)
+    has_pending = new_data != st.session_state.data
 
-    # If the cleaned data differs from what we had, commit it to state and
-    # rerun so other tabs see the change. Invalidate any prior solver result
-    # and seed a slider for any newly-added food.
-    if new_data != st.session_state.data:
+    # Fill the top slot now that we know whether edits are pending.
+    with top_slot:
+        apply_col, reset_col, _ = st.columns([1, 1, 4])
+        with apply_col:
+            apply_clicked = st.button(
+                "Apply changes",
+                type="primary" if has_pending else "secondary",
+                width="stretch",
+                disabled=not has_pending,
+                key="apply_data_btn",
+            )
+        with reset_col:
+            reset_clicked = st.button(
+                "Reset to defaults",
+                width="stretch",
+                key="reset_data_btn",
+            )
+        if has_pending:
+            st.info(
+                "Edits pending. Click **Apply changes** to update the "
+                "Optimizer tab."
+            )
+
+    for w in warnings:
+        st.warning(w)
+
+    if apply_clicked:
+        # Commit buffered edits. Same logic as the old auto-commit path:
+        # invalidate the visible LP result, re-solve the silent bounds LP
+        # so slider ranges follow the new data, and snap any pre-existing
+        # canonical slider values to 0.1 so the data-change-driven remount
+        # of the iframes shows clean value badges.
         st.session_state.data = new_data
         st.session_state.optimal = None
-        # Re-solve the silent bounds LP so slider ranges follow the
-        # new data (e.g., if the user adds a food or shifts a nutrient
-        # need by a lot, last solve's bounds are no longer appropriate).
         st.session_state._bounds_optimal = solve(new_data)
         for f in new_data["foods"]:
             if slider_key(f) not in st.session_state:
                 st.session_state[slider_key(f)] = 0.0
             else:
-                # Snap existing canonical values to the slider's 0.1 step.
-                # Data change rotates the component key (the bound is in
-                # the suffix), so the iframe remounts. On a remount the
-                # package displays the raw `default_value` at full
-                # precision in the value badge — a canonical left at
-                # the exact LP precision (e.g., 1.6287878...) shows up
-                # as a long float instead of "1.6".
                 v = float(st.session_state[slider_key(f)])
                 st.session_state[slider_key(f)] = round(v, 1)
         st.rerun()
 
-    for w in warnings:
-        st.warning(w)
-
     # Reset uses the deferred-flag pattern documented in `init_state`.
-    if st.button("Reset to defaults"):
+    if reset_clicked:
         st.session_state["_pending_reset"] = True
         st.rerun()
 
@@ -880,10 +903,14 @@ def render_optimizer_tab():
     user_cost = cost_of(slider_vals, data)
 
     # Decide cost-metric colors once so both columns paint consistently.
+    # Green when Your cost meets or beats the LP optimum. Beating it is
+    # only possible while infeasible (some nutrient minimum is violated)
+    # since the LP is a minimization at the constraint boundary; the
+    # chart's ⚠ glyph already flags infeasibility separately, so the
+    # cost indicator and the feasibility indicator stay orthogonal.
     if optimal and optimal["status"] == "optimal":
         opt_cost = float(optimal["cost"])
-        matches = abs(user_cost - opt_cost) < 0.01
-        your_color = "#16a34a" if matches else "#dc2626"
+        your_color = "#16a34a" if user_cost <= opt_cost else "#dc2626"
         opt_color = "#16a34a"
         opt_value = f"{opt_cost:.2f}"
     else:
