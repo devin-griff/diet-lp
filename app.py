@@ -498,6 +498,16 @@ def render_data_tab():
         for f in new_data["foods"]:
             if slider_key(f) not in st.session_state:
                 st.session_state[slider_key(f)] = 0.0
+            else:
+                # Snap existing canonical values to the slider's 0.1 step.
+                # Data change rotates the component key (the bound is in
+                # the suffix), so the iframe remounts. On a remount the
+                # package displays the raw `default_value` at full
+                # precision in the value badge — a canonical left at
+                # the exact LP precision (e.g., 1.6287878...) shows up
+                # as a long float instead of "1.6".
+                v = float(st.session_state[slider_key(f)])
+                st.session_state[slider_key(f)] = round(v, 1)
         st.rerun()
 
     for w in warnings:
