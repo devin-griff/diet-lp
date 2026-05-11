@@ -214,6 +214,12 @@ def init_state():
         st.session_state.data = copy.deepcopy(DEFAULT_DATA)
     if "optimal" not in st.session_state:
         st.session_state.optimal = None
+    # Silent LP solve used only to size the sliders (see
+    # `slider_upper_bound`). Not shown to the user — the `optimal` key
+    # above still drives the visible Optimal column / chart bars and
+    # stays None until the user clicks Run Optimizer.
+    if "_bounds_optimal" not in st.session_state:
+        st.session_state._bounds_optimal = solve(st.session_state.data)
     # New foods added later need a slider key, but existing keys are
     # preserved so the user's selection survives.
     for f in st.session_state.data["foods"]:
@@ -230,6 +236,8 @@ def apply_reset():
     # Restore the default instance and clear all widget-backed keys.
     st.session_state.data = copy.deepcopy(DEFAULT_DATA)
     st.session_state.optimal = None
+    # Re-solve the silent bounds LP so slider ranges fit the defaults.
+    st.session_state._bounds_optimal = solve(st.session_state.data)
     for f in DEFAULT_DATA["foods"]:
         st.session_state[slider_key(f)] = 0.0
     for n in NUTRIENTS:
@@ -295,17 +303,35 @@ def df_to_data(df, needs):
 
 
 def slider_upper_bound(food, data):
-    # Pick a sensible max for a food's slider: the smallest amount that
-    # would single-handedly satisfy any nutrient requirement (no point
-    # going higher), capped by SLIDER_CAP and floored at 1.0 for visibility.
+    # Slider max for a food. Two layers:
+    #
+    # 1. Hard ceiling: the smallest amount that single-handedly satisfies
+    #    any one nutrient — anything above this is physically wasteful.
+    #    Capped by SLIDER_CAP and floored at 1.0 for visibility.
     bounds = []
     for n in NUTRIENTS:
         c = data["content"].get((food, n), 0.0)
         if c > 0:
             bounds.append(data["needs"][n] / c)
     if not bounds:
-        return SLIDER_CAP
-    return float(min(SLIDER_CAP, max(1.0, math.ceil(max(bounds)))))
+        hard_max = SLIDER_CAP
+    else:
+        hard_max = float(min(SLIDER_CAP, max(1.0, math.ceil(max(bounds)))))
+
+    # 2. Data-aware refinement: when we have a silent LP solve (see
+    #    init_state), give every food the same slider range — twice the
+    #    ceiling of the largest LP optimum across all foods. Visually
+    #    uniform, and the busiest food's optimum lands at ~50% on its
+    #    slider with everyone else sitting lower. Capped by `hard_max`
+    #    so editing nutrient needs into extreme territory doesn't blow
+    #    up the slider.
+    bo = st.session_state.get("_bounds_optimal")
+    if bo and bo.get("status") == "optimal":
+        x = bo.get("x", {})
+        max_opt = max(x.values()) if x else 0.0
+        suggested = 2 * math.ceil(max_opt)
+        return float(min(hard_max, max(1.0, suggested)))
+    return hard_max
 
 
 def nutrient_totals(x, data):
@@ -422,6 +448,7 @@ def render_data_tab():
         new_needs[n] = col.number_input(
             f"{NUTRIENT_LABELS[n]} ({n})",
             min_value=0.0,
+            max_value=100.0,
             value=float(needs[n]),
             step=1.0,
             key=f"need_{n}",
@@ -464,6 +491,10 @@ def render_data_tab():
     if new_data != st.session_state.data:
         st.session_state.data = new_data
         st.session_state.optimal = None
+        # Re-solve the silent bounds LP so slider ranges follow the
+        # new data (e.g., if the user adds a food or shifts a nutrient
+        # need by a lot, last solve's bounds are no longer appropriate).
+        st.session_state._bounds_optimal = solve(new_data)
         for f in new_data["foods"]:
             if slider_key(f) not in st.session_state:
                 st.session_state[slider_key(f)] = 0.0
@@ -789,7 +820,11 @@ def render_optimizer_tab():
             key = slider_key(f)
             current = float(st.session_state.get(key, 0.0))
             with c:
-                component_key = f"v_{key}"
+                # Bound is baked into the component key so a data edit
+                # that recomputes the bound forces a remount; the package's
+                # React state otherwise ignores subsequent `max_value` prop
+                # changes and the slider's visible range stays stale.
+                component_key = f"v_{key}_{ub:g}"
                 vertical_slider(
                     label=f,
                     key=component_key,
