@@ -654,7 +654,14 @@ def render_optimizer_tab():
                 ub = slider_upper_bound(f, data)
                 val = float(optimal["x"].get(f, 0.0))
                 clamped = max(0.0, min(val, ub))
-                st.session_state[slider_key(f)] = round(clamped, 1)
+                # Ceil to the slider's 0.1 step. The LP often hits some
+                # nutrient constraints exactly (binding); naive nearest-
+                # rounding can drop a binding constraint just below its
+                # minimum and trigger the violation glyph spuriously.
+                # Ceiling each x_f stays on the feasible side because
+                # every coefficient D[f,n] is non-negative — rounding up
+                # x_f can only increase nutrient totals.
+                st.session_state[slider_key(f)] = math.ceil(clamped * 10) / 10
             st.session_state.set_at_optimum_token = (
                 st.session_state.get("set_at_optimum_token", 0) + 1
             )
@@ -791,9 +798,9 @@ def render_optimizer_tab():
                     min_value=0.0,
                     max_value=float(ub),
                     step=0.1,
-                    slider_color="#FF4B4B",
+                    slider_color="#0072B2",
                     track_color="#E5E9F1",
-                    thumb_color="#FF4B4B",
+                    thumb_color="#0072B2",
                     value_always_visible=True,
                 )
                 # The package's return value is broken for drags to exactly
@@ -882,7 +889,7 @@ def render_optimizer_tab():
                 y=alt.Y("value:Q", title="Total nutrient"),
                 color=alt.Color(
                     "source:N",
-                    scale=alt.Scale(domain=["You", "Optimal"], range=["#FF4B4B", "#54A24B"]),
+                    scale=alt.Scale(domain=["You", "Optimal"], range=["#0072B2", "#E69F00"]),
                     legend=alt.Legend(title=None, orient="top"),
                 ),
                 tooltip=[
@@ -927,12 +934,59 @@ def render_optimizer_tab():
                 tooltip=[alt.Tooltip("value:Q", title="Min requirement")],
             )
         )
+        # Layer 3 (conditional): warning glyph above any "You" bar whose
+        # nutrient total falls below the min requirement. Same pattern as
+        # the knapsack weight-limit ⚠, in the same red (#dc2626) as the
+        # dotted min-requirement rules — the two read as a "constraint /
+        # you violated it" pair. Hover shows the shortfall.
+        violation_rows = [
+            {
+                "nutrient": NUTRIENT_LABELS[n],
+                "value": user_totals[n],
+                "source": "You",
+                "deficit": data["needs"][n] - user_totals[n],
+            }
+            for n in NUTRIENTS
+            if user_totals[n] < data["needs"][n]
+        ]
+        violation_marks = None
+        if violation_rows:
+            violation_df = pd.DataFrame(violation_rows)
+            violation_marks = (
+                alt.Chart(violation_df)
+                .mark_text(
+                    text="⚠",
+                    fontSize=22,
+                    color="#dc2626",
+                    dy=-12,
+                    baseline="bottom",
+                    fontWeight="bold",
+                )
+                .encode(
+                    x=alt.X("nutrient:N", sort=nutrient_order),
+                    xOffset=alt.XOffset(
+                        "source:N",
+                        sort=["You", "Optimal"],
+                        scale=alt.Scale(paddingInner=0),
+                    ),
+                    y="value:Q",
+                    tooltip=[
+                        alt.Tooltip("nutrient:N"),
+                        alt.Tooltip("value:Q", title="Your total", format=".2f"),
+                        alt.Tooltip("deficit:Q", title="Short by", format=".1f"),
+                    ],
+                )
+            )
+
         # Chart height matches the slider band visually. The vertical
         # slider iframe is 298px tall (slider 220 + value badge + max/min
         # number labels + food name label), so set the chart height to
         # roughly the same so the bars span the same vertical extent as
         # the sliders flanking the chart.
-        chart = (bars + rules).resolve_scale(color="independent").properties(height=300)
+        if violation_marks is not None:
+            chart = (bars + rules + violation_marks).resolve_scale(color="independent").properties(height=300)
+        else:
+            chart = (bars + rules).resolve_scale(color="independent").properties(height=300)
         st.altair_chart(chart, width="stretch")
 
     with opt_col:
@@ -948,14 +1002,14 @@ def render_optimizer_tab():
             ub = slider_upper_bound(f, data)
             if solved:
                 val = round(max(0.0, min(float(opt_x.get(f, 0.0)), ub)), 1)
-                color = "#54A24B"
+                color = "#E69F00"
             else:
                 val = 0.0
                 color = "#cbd5e1"
             with c:
                 # Key suffix is the solved/unsolved state, not the value,
                 # so the component remounts only on the first solve (where
-                # we need the gray -> green color flip). Subsequent value
+                # we need the gray -> amber color flip). Subsequent value
                 # changes from re-solves are handled by the DOM-poke in
                 # the components.html script, which avoids the iframe
                 # reload flash.
@@ -1154,7 +1208,7 @@ def render_optimizer_tab():
             // the optimal-side iframes (indices N..2N-1). The slider
             // package's color props don't update after first mount, so
             // the Python side still remounts on the very first solve
-            // (when the slider goes gray -> green); after that, value
+            // (when the slider goes gray -> amber); after that, value
             // updates flow through this poke without a reload.
             function applyOptimalXValues() {{
                 var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
