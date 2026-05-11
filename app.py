@@ -983,6 +983,11 @@ def render_optimizer_tab():
         # the knapsack weight-limit ⚠, in the same red (#dc2626) as the
         # dotted min-requirement rules — the two read as a "constraint /
         # you violated it" pair. Hover shows the shortfall.
+        # The `- 1e-6` slack absorbs float-precision noise: at the exact
+        # LP optimum, totals can come out to e.g. 19.99999998 instead of
+        # 20.0 due to the solver's 16-digit float arithmetic, and a
+        # strict < check would trigger the glyph at the LP solution.
+        violation_eps = 1e-6
         violation_rows = [
             {
                 "nutrient": NUTRIENT_LABELS[n],
@@ -991,7 +996,7 @@ def render_optimizer_tab():
                 "deficit": data["needs"][n] - user_totals[n],
             }
             for n in NUTRIENTS
-            if user_totals[n] < data["needs"][n]
+            if user_totals[n] < data["needs"][n] - violation_eps
         ]
         violation_marks = None
         if violation_rows:
