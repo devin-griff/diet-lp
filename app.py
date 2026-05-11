@@ -684,15 +684,14 @@ def render_optimizer_tab():
             for f in data["foods"]:
                 ub = slider_upper_bound(f, data)
                 val = float(optimal["x"].get(f, 0.0))
-                clamped = max(0.0, min(val, ub))
-                # Ceil to the slider's 0.1 step. The LP often hits some
-                # nutrient constraints exactly (binding); naive nearest-
-                # rounding can drop a binding constraint just below its
-                # minimum and trigger the violation glyph spuriously.
-                # Ceiling each x_f stays on the feasible side because
-                # every coefficient D[f,n] is non-negative — rounding up
-                # x_f can only increase nutrient totals.
-                st.session_state[slider_key(f)] = math.ceil(clamped * 10) / 10
+                # Store the exact LP value, no rounding. The slider's
+                # step=0.1 will snap the *visual* thumb position to the
+                # nearest 0.1, but the canonical session_state keeps the
+                # exact x_f so Your cost matches Optimal cost exactly
+                # and binding nutrient constraints don't get rounded
+                # below their minimum (which would otherwise trigger
+                # the violation glyph spuriously).
+                st.session_state[slider_key(f)] = max(0.0, min(val, ub))
             st.session_state.set_at_optimum_token = (
                 st.session_state.get("set_at_optimum_token", 0) + 1
             )
@@ -838,22 +837,32 @@ def render_optimizer_tab():
                     thumb_color="#0072B2",
                     value_always_visible=True,
                 )
-                # The package's return value is broken for drags to exactly
-                # zero: its source does `return val if val else default`,
-                # so a 0 from the JS frontend gets silently replaced with
-                # the previous default_value. Read the raw component value
-                # from session_state instead — Streamlit's component
-                # machinery stores the actual JS-side value under the
-                # component's key, bypassing the package's falsy check.
-                # Skip the mirror on the rerun fired by "Set at Optimum":
-                # the canonical key already has the new value, and the JS
-                # state hasn't been DOM-poked to the new value yet, so
-                # mirroring would clobber canonical with the stale JS
-                # value.
-                if not just_set_at_optimum:
-                    raw = st.session_state.get(component_key)
-                    if raw is not None:
-                        st.session_state[key] = float(raw)
+                # Mirror the JS-side component value back into the
+                # canonical slider_<food> key. Two wrinkles:
+                #
+                # 1. The package's return value is broken for drags to
+                #    exactly zero (`return val if val else default`), so
+                #    we read the raw component value from session_state
+                #    instead — bypassing that falsy check.
+                # 2. After Set at Optimum, canonical holds the *exact* LP
+                #    x_f (no rounding) so Your cost matches the LP cost
+                #    exactly. The slider's step=0.1 then snaps the JS-
+                #    side value to the nearest grid point (e.g., 1.6
+                #    when canonical is 1.6287). A naive mirror would
+                #    clobber the exact canonical with the snapped grid
+                #    value. So: skip mirror on the rerun fired by Set
+                #    at Optimum (canonical fresh, JS stale), and on
+                #    subsequent reruns only mirror if the JS value
+                #    differs from canonical by more than half a step —
+                #    a real user drag moves at least a full step, so it
+                #    crosses the threshold; the JS-snap of canonical
+                #    does not.
+                raw = st.session_state.get(component_key)
+                if raw is not None and not just_set_at_optimum:
+                    component_val = float(raw)
+                    canonical_val = float(st.session_state.get(key, 0.0))
+                    if abs(component_val - canonical_val) > 0.05:
+                        st.session_state[key] = component_val
 
     # Read the user sliders and compute the user cost AFTER the left side
     # widgets have written their values back into session_state above.
