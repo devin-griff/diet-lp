@@ -914,6 +914,17 @@ def render_optimizer_tab():
          *   - `pointer-events: none` blocks mouse interaction; the
          *     pre-sync loop above pins session_state to the LP value
          *     so any keyboard focus + arrow press snaps back. */
+        /* Collapse the invisible marker element-container. The marker
+         * div sits inside an stElementContainer that has its own
+         * top/bottom padding from Streamlit's vertical block layout,
+         * which would push the optimal-side sliders ~14px below their
+         * user-side counterparts. `display: none` on the wrapper
+         * removes its layout box; the marker child is still in the DOM
+         * so the column-level `:has(.optimal-col-marker)` selectors
+         * keep matching. */
+        [data-testid="stElementContainer"]:has(.optimal-col-marker) {{
+            display: none;
+        }}
         [data-testid="stColumn"]:has(.optimal-col-marker) [data-testid="stSlider"] {{
             pointer-events: none;
         }}
