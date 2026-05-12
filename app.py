@@ -986,9 +986,26 @@ def render_optimizer_tab():
             font-size: 0.75rem !important;
             box-shadow: none !important;
         }}
+        /* Vega-tooltip renders every tooltip as a <table> with two columns:
+         * `td.key` (the field name) and `td.value`. Our violation marks
+         * pass title=" " for `status` to suppress the field-name label;
+         * the resulting empty `td.key` still occupies width (~25px), so
+         * the Vega tooltip bubble ends up wider than the cost-icon's
+         * plain-text bubble. Collapsing the .key column on whitespace-
+         * only content would be ideal but CSS can't match text content,
+         * so we collapse it globally — the chart's bar tooltips lose
+         * their field-name labels but still show the values (You / 0.00
+         * / Protein), which remain readable in context. */
+        #vg-tooltip-element.vg-tooltip td.key {{
+            display: none !important;
+        }}
+        #vg-tooltip-element.vg-tooltip table {{
+            border-spacing: 0 !important;
+        }}
         #vg-tooltip-element.vg-tooltip td,
         #vg-tooltip-element.vg-tooltip th {{
             color: #fff !important;
+            padding: 0 !important;
         }}
 
         /* Hover tooltip on the user-side slider's element-container.
