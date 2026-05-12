@@ -1085,7 +1085,7 @@ def render_optimizer_tab():
         'data-violation-tooltip="Constraint violated" '
         'style="color: #dc2626; margin-left: 0.5rem; font-size: 1.5rem; '
         'cursor: help; vertical-align: baseline; position: relative; '
-        'top: -0.35rem;">⚠</span>'
+        'top: -0.15rem;">⚠</span>'
         if has_violation else ''
     )
 
