@@ -1196,6 +1196,7 @@ def render_optimizer_tab():
                 "value": user_totals[n],
                 "source": "You",
                 "deficit": data["needs"][n] - user_totals[n],
+                "status": "Constraint violated",
             }
             for n in NUTRIENTS
             if user_totals[n] < data["needs"][n] - violation_eps
@@ -1221,7 +1222,12 @@ def render_optimizer_tab():
                         scale=alt.Scale(paddingInner=0),
                     ),
                     y="value:Q",
+                    # `status` carries the same "Constraint violated"
+                    # label that the cost-metric ⚠ shows on hover, so
+                    # every violation icon in the app (cost + per-
+                    # nutrient chart marks) opens with the same headline.
                     tooltip=[
+                        alt.Tooltip("status:N", title=None),
                         alt.Tooltip("nutrient:N"),
                         alt.Tooltip("value:Q", title="Your total", format=".2f"),
                         alt.Tooltip("deficit:Q", title="Short by", format=".1f"),
