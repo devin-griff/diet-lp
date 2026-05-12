@@ -8,6 +8,11 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py favicon.png ./
+# Streamlit reads .streamlit/config.toml from the working directory; the
+# theme.primaryColor in there paints user-side slider thumbs the Wong
+# blue that matches the "You" series in the Constraints chart. Without
+# this copy, production falls back to Streamlit's default red.
+COPY .streamlit/ ./.streamlit/
 
 # Overwrite Streamlit's default static index.html: title, favicon, and
 # inject Open Graph + Twitter Card meta tags so links to this app on
