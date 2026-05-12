@@ -946,9 +946,9 @@ def render_optimizer_tab():
         }}
 
         /* Hover tooltip on the constraint-violation icon next to "Your
-         * cost". Uses the same dark-bubble style as the slider tooltips
-         * so the two feel like one family. Content is read from the
-         * data-violation-tooltip attribute the icon's HTML sets. */
+         * cost". Exactly matches the Vega-tooltip styling below so the
+         * "Constraint violated" text bubble looks identical whether the
+         * user hovers the cost-icon ⚠ or a chart-mark ⚠. */
         .diet-violation-icon {{
             position: relative;
             display: inline-block;
@@ -959,15 +959,36 @@ def render_optimizer_tab():
             top: 100%;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(17, 24, 39, 0.92);
-            color: #f9fafb;
-            padding: 0.35rem 0.55rem;
+            background: #000;
+            color: #fff;
+            padding: 0.5rem 0.75rem;
             border-radius: 4px;
             font-size: 0.75rem;
             white-space: nowrap;
             z-index: 1000;
             pointer-events: none;
             margin-top: 0.25rem;
+        }}
+
+        /* Vega-tooltip element added to <body> by altair_chart's hover
+         * plugin. Default styling is white-bg / dark-text / 6px 12px /
+         * 8px radius / 1px border — completely different from the
+         * cost-icon tooltip. Overriding both color and box metrics to
+         * match (.diet-violation-icon:hover::after above) so a hover on
+         * any ⚠ in the app — cost-side or chart-side — produces a
+         * visually identical popup. */
+        #vg-tooltip-element.vg-tooltip {{
+            background: #000 !important;
+            color: #fff !important;
+            border: none !important;
+            padding: 0.5rem 0.75rem !important;
+            border-radius: 4px !important;
+            font-size: 0.75rem !important;
+            box-shadow: none !important;
+        }}
+        #vg-tooltip-element.vg-tooltip td,
+        #vg-tooltip-element.vg-tooltip th {{
+            color: #fff !important;
         }}
 
         /* Hover tooltip on the user-side slider's element-container.
