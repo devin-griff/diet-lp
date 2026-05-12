@@ -956,28 +956,29 @@ def render_optimizer_tab():
         .diet-violation-icon:hover::after {{
             content: attr(data-violation-tooltip);
             position: absolute;
+            /* Position the tooltip to the right of (and slightly below)
+             * the icon — same relative location Vega-tooltip uses when
+             * hovering chart marks (a small offset away from the cursor),
+             * instead of dropping straight under the icon where the
+             * cursor itself sits. */
             top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
+            left: 100%;
+            margin-left: 0.5rem;
             background: #000;
             color: #fff;
             padding: 0.5rem 0.75rem;
             border-radius: 4px;
             font-size: 0.75rem;
-            /* Pin font metrics explicitly. Without these, the cost-icon
-             * tooltip inherits font-weight: 600 from the parent cost-
-             * number div (the metric value is semibold), making
-             * "Constraint violated" wider than the Vega-tooltip version
-             * which renders at normal weight. line-height: 1 also
-             * inherits from the value div and gives the cost tooltip a
-             * shorter box than Vega's default. */
+            /* Pin font metrics so width/height match Vega-tooltip's
+             * "Constraint violated" bubble exactly. The cost-icon
+             * pseudo otherwise inherits font-weight: 600 + line-height:1
+             * from the parent cost-number div. */
             font-family: inherit;
             font-weight: 400;
             line-height: 1.2;
             white-space: nowrap;
             z-index: 1000;
             pointer-events: none;
-            margin-top: 0.25rem;
         }}
 
         /* Vega-tooltip element added to <body> by altair_chart's hover
