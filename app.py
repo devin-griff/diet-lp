@@ -35,17 +35,13 @@ import copy
 import math
 from pathlib import Path
 
-import json
-
 import altair as alt
 import pandas as pd
 import pyomo.environ as pyo
 import streamlit as st
-import streamlit.components.v1 as components
 from pyomo.common.errors import ApplicationError
 from pyomo.common.tee import capture_output
 from pyomo.opt import TerminationCondition
-from streamlit_vertical_slider import vertical_slider
 
 
 # ---------- Solver ----------
@@ -203,8 +199,29 @@ DEFAULT_DATA = {
 #   - data_editor:         backing key for the data editor widget
 
 def slider_key(food):
-    # Stable, food-keyed widget identifier.
+    # Stable, food-keyed CANONICAL identifier. Lives in session_state, drives
+    # cost/chart computation, and is mutated by Apply changes (Data tab),
+    # Set at Optimum, Reset to defaults, and init. NOT a widget key — the
+    # actual st.slider widget uses `slider_widget_key(f)`.
     return f"slider_{food}"
+
+
+def slider_widget_key(food):
+    # Widget-owned key for the user-side st.slider. Distinct from
+    # `slider_key` so the canonical can be freely modified by other code
+    # paths (which a widget-owned key forbids after instantiation). The
+    # widget reads its display value from session_state[widget_key], which
+    # we pre-sync from the canonical on every rerun before the slider
+    # renders.
+    return f"v_{slider_key(food)}"
+
+
+def _mirror_user_slider(canonical_key, widget_key):
+    # on_change callback: push the widget's just-changed value back into
+    # the canonical session_state slot. Runs before the script reruns, so
+    # by the time render_optimizer_tab's pre-sync loop executes,
+    # canonical and widget_key are already in agreement.
+    st.session_state[canonical_key] = st.session_state[widget_key]
 
 
 def init_state():
@@ -414,17 +431,24 @@ def build_instance_latex(data):
     return body
 
 
-def colored_metric(label, value, color, align="left"):
+def colored_metric(label, value, color, align="left", suffix_html="", inset="0"):
     # st.metric doesn't support arbitrary value coloring, so we render a
     # metric-shaped block via raw HTML. Used to flag matching/mismatching
     # values (green if your cost equals the optimum, red otherwise).
     # `align` controls text-align so the metric can sit flush against
-    # either edge of its column.
+    # either edge of its column. `suffix_html` is appended inside the
+    # value div after the number — used to drop a constraint-violation
+    # ⚠ glyph next to Your cost when the user's diet misses a nutrient
+    # minimum. `inset` adds horizontal padding on the side matching
+    # `align` so the metric can be nudged inward from the column edge
+    # (Your/Optimal cost under the chart use this to land away from the
+    # column gutter).
     style_color = f"color: {color};" if color else ""
+    pad_side = "left" if align == "left" else "right"
     st.markdown(
-        f"<div style='margin: 0.25rem 0 1rem 0; text-align: {align};'>"
+        f"<div style='margin: 0.25rem 0 1rem 0; padding-{pad_side}: {inset}; text-align: {align};'>"
         f"<div style='font-size: 0.875rem; color: rgba(49,51,63,0.6); margin-bottom: 0.25rem;'>{label}</div>"
-        f"<div style='font-size: 2rem; font-weight: 600; line-height: 1; {style_color}'>{value}</div>"
+        f"<div style='font-size: 2rem; font-weight: 600; line-height: 1; {style_color}'>{value}{suffix_html}</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -520,11 +544,14 @@ def render_data_tab():
         st.warning(w)
 
     if apply_clicked:
-        # Commit buffered edits. Same logic as the old auto-commit path:
-        # invalidate the visible LP result, re-solve the silent bounds LP
-        # so slider ranges follow the new data, and snap any pre-existing
-        # canonical slider values to 0.1 so the data-change-driven remount
-        # of the iframes shows clean value badges.
+        # Commit buffered edits. Invalidate the visible LP result, re-solve
+        # the silent bounds LP so slider ranges follow the new data, and
+        # snap pre-existing canonical slider values to 0.1 so the value
+        # badge reads cleanly. Writes target only the canonical key
+        # (slider_<food>); the user slider's widget key
+        # (slider_widget_key(f)) is owned by the widget and would error
+        # if modified here. The pre-sync loop in render_optimizer_tab
+        # propagates the new canonical into the widget next rerun.
         st.session_state.data = new_data
         st.session_state.optimal = None
         st.session_state._bounds_optimal = solve(new_data)
@@ -533,6 +560,8 @@ def render_data_tab():
                 st.session_state[slider_key(f)] = 0.0
             else:
                 v = float(st.session_state[slider_key(f)])
+                # Round to slider step (0.1) so the value bubble reads
+                # cleanly post-data-edit.
                 st.session_state[slider_key(f)] = round(v, 1)
         st.rerun()
 
@@ -673,10 +702,11 @@ def render_optimizer_tab():
     # Layout (top to bottom):
     #   1. Action buttons (Run Optimizer, Set at Optimum)
     #   2. Status banner if the last run was not optimal
-    #   3. Side by side: "Your diet" (interactive vertical sliders) on the
-    #      left, "Optimal diet" (read only vertical sliders) on the right.
-    #      One vertical slider per food in each half.
-    #   4. Nutrient bar chart + cost metrics below the slider banks.
+    #   3. Three columns: "Your diet" (interactive horizontal sliders) on
+    #      the left, the nutrient bar chart in the middle, "Optimal diet"
+    #      (read-only horizontal sliders) on the right. One slider per
+    #      food in each side column, stacked top to bottom in food order.
+    #   4. Cost metrics below each slider bank.
     data = st.session_state.data
     if not data["foods"]:
         st.info("Add at least one food on the Data tab.")
@@ -686,16 +716,37 @@ def render_optimizer_tab():
     act1, act2, _ = st.columns([1, 1, 6])
     with act1:
         if st.button("Run Optimizer", width="stretch", key="run_btn"):
-            st.session_state.optimal = solve(data)
-            # Bump so the components.html script DOM-pokes the optimal
-            # slider iframes to the new x_f values, avoiding the reload
-            # flash that comes from remounting on each solve. The slider's
-            # color (gray pre-solve, green post-solve) still relies on a
-            # `solved` flag in the component key, so the first solve still
-            # remounts once — subsequent re-solves just animate values.
-            st.session_state.run_optimizer_token = (
-                st.session_state.get("run_optimizer_token", 0) + 1
-            )
+            result = solve(data)
+            if result["status"] == "optimal":
+                # Snap each x_f UP to the nearest slider step so the
+                # displayed optimum is reachable via slider drag. The
+                # LP solver returns continuous floats (e.g. bread =
+                # 5.4545…) that don't fall on the 0.1 step grid;
+                # rounding DOWN would lose feasibility on binding
+                # constraints (≥-type), so we ceiling-round, which
+                # only adds slack to the constraint side. The cost is
+                # recomputed from the snapped values so "Optimal cost"
+                # is the cost of the diet shown on the sliders — what
+                # the user sees and what they can actually reach.
+                #
+                # `zero_eps` treats sub-1e-6 LP values as exact zeros.
+                # HiGHS sometimes returns tiny positive values like
+                # 1e-12 for variables the LP doesn't want to use;
+                # without the threshold, naive ceiling would push
+                # those to 0.1 and falsely show "eat 0.1 of this food"
+                # on the optimal slider.
+                zero_eps = 1e-6
+                rounded = {}
+                for f, v in result["x"].items():
+                    if v < zero_eps:
+                        rounded[f] = 0.0
+                    else:
+                        ub_f = slider_upper_bound(f, data)
+                        snapped = math.ceil(v / 0.1) * 0.1
+                        rounded[f] = min(snapped, ub_f)
+                result["x"] = rounded
+                result["cost"] = cost_of(rounded, data)
+            st.session_state.optimal = result
     optimal = st.session_state.optimal
     with act2:
         set_disabled = not (optimal and optimal["status"] == "optimal")
@@ -706,28 +757,17 @@ def render_optimizer_tab():
             key="set_opt_btn",
         ):
             # Copy the optimal x_f values into the user sliders. Each slider
-            # is clamped to its own upper bound, then rounded to match the
-            # step=0.1 of the user sliders (otherwise the value badge shows
-            # full-precision floats like 1.62878787878). Bumping
-            # `set_at_optimum_token` triggers the components.html script to
-            # DOM-poke each slider's underlying <input type=range> so the
-            # thumb animates to the new position without remounting the
-            # iframe (the package ignores default_value prop changes after
-            # first mount, and a remount looks like a reload).
+            # is clamped to its own upper bound. We store the exact LP value
+            # (no rounding) so Your cost matches Optimal cost exactly and
+            # binding nutrient constraints don't get rounded below their
+            # minimum (which would otherwise trigger the violation glyph
+            # spuriously). The slider's step=0.1 may visually snap the
+            # thumb to the nearest 0.1, but the canonical session_state
+            # value remains exact.
             for f in data["foods"]:
                 ub = slider_upper_bound(f, data)
                 val = float(optimal["x"].get(f, 0.0))
-                # Store the exact LP value, no rounding. The slider's
-                # step=0.1 will snap the *visual* thumb position to the
-                # nearest 0.1, but the canonical session_state keeps the
-                # exact x_f so Your cost matches Optimal cost exactly
-                # and binding nutrient constraints don't get rounded
-                # below their minimum (which would otherwise trigger
-                # the violation glyph spuriously).
                 st.session_state[slider_key(f)] = max(0.0, min(val, ub))
-            st.session_state.set_at_optimum_token = (
-                st.session_state.get("set_at_optimum_token", 0) + 1
-            )
             st.rerun()
 
     # Inline status messages for non optimal solver outcomes.
@@ -741,9 +781,10 @@ def render_optimizer_tab():
         elif optimal["status"] not in ("optimal", "no_foods"):
             st.error(f"Solver returned: {optimal['status']}")
 
-    # Clamp every slider key before any vertical_slider call so widgets
-    # never receive an out of range value when the user shrinks a
-    # requirement.
+    # Clamp every canonical key before any st.slider call so the widget
+    # never receives an out-of-range value when the user shrinks a
+    # requirement (Streamlit errors if `value` is outside
+    # [min_value, max_value]).
     for f in data["foods"]:
         ub = slider_upper_bound(f, data)
         key = slider_key(f)
@@ -752,155 +793,250 @@ def render_optimizer_tab():
         if existing != preserved:
             st.session_state[key] = preserved
 
-    # Detect whether THIS rerun was triggered by "Set at Optimum". On that
-    # one rerun the canonical slider_<food> keys carry the new optimal
-    # values, but the iframes' React state still has the stale pre-click
-    # values. We skip the mirror-back-from-component-state step on this
-    # rerun so the canonical doesn't get overwritten with the stale JS
-    # values. The components.html script below DOM-pokes the iframes to
-    # the new values, which triggers a second rerun where the JS state
-    # is current and the mirror runs normally again.
-    current_optimum_token = st.session_state.get("set_at_optimum_token", 0)
-    last_seen_optimum_token = st.session_state.get(
-        "_optimum_token_last_seen", 0
-    )
-    just_set_at_optimum = current_optimum_token != last_seen_optimum_token
-    st.session_state["_optimum_token_last_seen"] = current_optimum_token
+    # Pre-sync canonical -> widget_key. The user-side st.slider owns
+    # `slider_widget_key(f)`; once the slider instantiates this run, that
+    # key cannot be modified by any other code path. So we copy from the
+    # (freely-mutable) canonical into the widget-owned key now, BEFORE
+    # the slider renders. This is the channel through which Set at
+    # Optimum / Apply changes / Reset updates reach the rendered widget.
+    for f in data["foods"]:
+        wkey = slider_widget_key(f)
+        st.session_state[wkey] = float(st.session_state.get(slider_key(f), 0.0))
 
-    # Tighten the gaps between food sub-columns. Streamlit's smallest
-    # `gap="small"` still leaves visible spacing in the horizontal block;
-    # this scoped rule targets only stHorizontalBlocks that contain a
-    # vertical_slider iframe so other column rows on the page (the action
-    # button row, the cost metric row) are not affected. The optimal-diet
-    # rule disables pointer events on the right column's iframes so those
-    # sliders are visible but cannot be dragged.
+    # Per-food hover tooltips: price per unit + nutrient density. Each
+    # food's tooltip becomes the `content` of a CSS ::after pseudo-element
+    # that fires on :hover of the slider's element-container — no JS,
+    # no iframe. Built once outside the loop so user and optimal sides
+    # share text.
+    nutrient_label_short = {"P": "Prot", "C": "Carb", "F": "Fat", "V": "Vit"}
+    user_tooltips = {}
+    for f in data["foods"]:
+        parts = [f"${data['price'][f]:g}"] + [
+            f"{nutrient_label_short.get(n, n)} {data['content'][(f, n)]:g}"
+            for n in data["nutrients"]
+        ]
+        user_tooltips[f] = "  ·  ".join(parts) + "  per unit"
+
+    # Per-food tooltip content rules. Streamlit stamps
+    # `st-key-<widget_key>` as a class on every widget's element-
+    # container, which gives us a food-stable hook for CSS without any
+    # JS injection. Tooltips fire on the USER side only — the optimal
+    # side is read-only and already labelled, so hover info there would
+    # be redundant.
+    tooltip_rules = []
+    for f in data["foods"]:
+        tooltip_rules.append(
+            f'[class~="st-key-{slider_widget_key(f)}"]:hover::after '
+            f'{{ content: "{user_tooltips[f]}"; }}'
+        )
+    tooltip_content_css = "\n".join(tooltip_rules)
+
+    # Optimal sliders use native BaseWeb rendering (active fill segment
+    # painted by the slider widget itself, synced with thumb position by
+    # design). To make them read-only we render with disabled=False but
+    # block interaction via CSS `pointer-events: none`, plus the
+    # pre-sync loop here that pins `session_state[widget_key] = LP_value`
+    # each rerun so any accidental keyboard nudge bounces back to the LP
+    # value on the next render.
+    #
+    # We then override BaseWeb's blue gradient with an amber gradient
+    # per-food, using the same `value/max %` stop position BaseWeb uses
+    # (so the amber/gray boundary lands exactly where the thumb is,
+    # the same way the blue/gray boundary does on the user side). The
+    # gradient stop is set in the *same Streamlit rerun* that BaseWeb
+    # places the thumb at its new position, so both arrive on the same
+    # paint frame — no "fill leads thumb" lag like the disabled-slider
+    # workaround had.
+    solved = bool(optimal and optimal["status"] == "optimal")
+    opt_x = optimal["x"] if solved else {}
+    opt_fill_rules = []
+    for f in data["foods"]:
+        ub = slider_upper_bound(f, data)
+        if solved and ub > 0:
+            val = max(0.0, min(float(opt_x.get(f, 0.0)), ub))
+            pct = val / ub * 100
+        else:
+            val = 0.0
+            pct = 0.0
+        wkey = f"opt_v_{f}"
+        st.session_state[wkey] = val
+        # Exact class match — widget key is `opt_v_<food>` with no
+        # trailing value, so the class on the element-container is
+        # exactly `st-key-opt_v_<food>`. Using `:has()` on the
+        # element-container picks the right one without risking
+        # food-name-prefix collisions (e.g. "fruit" vs "fruitcake")
+        # that a substring `[class*=...]` selector could hit.
+        opt_fill_rules.append(
+            f'[data-testid="stElementContainer"].st-key-opt_v_{f} '
+            f'[data-baseweb="slider"] > div > div > div:nth-child(2) '
+            f'{{ background-image: linear-gradient(to right, '
+            f'#E69F00 0%, #E69F00 {pct:.4f}%, '
+            f'rgba(151, 166, 195, 0.25) {pct:.4f}%, '
+            f'rgba(151, 166, 195, 0.25) 100%) !important; }}'
+        )
+    opt_fill_css = "\n".join(opt_fill_rules)
+
     st.markdown(
-        """
+        f"""
         <style>
-        /* Tighten the gap between food sub-columns in any horizontal block
-         * that holds an iframe (vertical sliders are the only iframes
-         * inside columnar blocks on this page). */
-        div[data-testid="stHorizontalBlock"]:has(iframe) {
-            gap: 0 !important;
-        }
-        /* Disable text selection on the slider banks. Without this, dragging
-         * a slider thumb (or even just clicking on the column) selects the
-         * label text (food name, value badge, "0" tick label) and surrounding
-         * UI, leaving an ugly blue highlight that persists until the user
-         * clicks elsewhere. -webkit- prefix needed for older Safari. */
-        div[data-testid="stHorizontalBlock"]:has(iframe),
-        div[data-testid="stHorizontalBlock"]:has(iframe) * {
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            user-select: none;
-        }
-        /* Optimal-side iframes are read only. The data-readonly attribute
-         * is stamped by the components.html script below onto each food
-         * sub-column on the right side. */
-        [data-readonly] iframe {
+        /* The native st.slider value bubble (floats above each thumb,
+         * follows the thumb position) is the value indicator — same
+         * pattern as quad-tank. Default Streamlit behavior, no override
+         * needed here. */
+
+        /* Kill BaseWeb's default `transition: all` on every slider
+         * thumb (both user and optimal). The thumb's inline `transform`
+         * animates between value updates via that transition (~200ms
+         * ease), while the active-fill gradient and the value bubble
+         * snap to their new positions on the same React commit. That
+         * mismatch is the "bar leads thumb" effect right after
+         * Set at Optimum / Run Optimizer. With transition:none the
+         * thumb snaps to its new transform in the same frame as the
+         * gradient. User-side drag still feels smooth — drag tracking
+         * is mouse-driven, not transition-driven. */
+        [data-testid="stSlider"] [role="slider"] {{
+            transition: none !important;
+        }}
+
+        /* Optimal column: read-only sliders that visually match the
+         * "Optimal" amber series in the Constraints chart.
+         *
+         * Strategy:
+         *   - `disabled=False` on the widget so BaseWeb paints the
+         *     active-fill gradient + positions the thumb in the SAME
+         *     React render cycle (synced by design — no "fill leads
+         *     thumb" lag).
+         *   - Per-food CSS rules below override BaseWeb's blue gradient
+         *     with the Wong amber color, keeping BaseWeb's percentage
+         *     stop (so the amber/gray boundary lands under the thumb,
+         *     same as the user side's blue/gray boundary).
+         *   - Thumb recolored to amber.
+         *   - `pointer-events: none` blocks mouse interaction; the
+         *     pre-sync loop above pins session_state to the LP value
+         *     so any keyboard focus + arrow press snaps back. */
+        [data-testid="stColumn"]:has(.optimal-col-marker) [data-testid="stSlider"] {{
             pointer-events: none;
-        }
-        /* Custom hover tooltip on user-side food sub-columns. Native iframe
-         * title tooltips fire unreliably because the inner React content
-         * consumes the hover; CSS :hover on the parent column does fire
-         * whenever the mouse is anywhere over the column's bounding box,
-         * iframe included. The text comes from a data-tooltip attribute
-         * the script below writes onto each user-side column. */
-        [data-tooltip] {
+        }}
+        [data-testid="stColumn"]:has(.optimal-col-marker)
+            [data-testid="stSlider"] [role="slider"] {{
+            background-color: #E69F00 !important;
+        }}
+
+        /* Tighten the vertical gap between sliders on both sides. Each
+         * st.slider's element-container gets a small negative top margin
+         * so the food label tucks closer to the previous slider's track.
+         * Targets only the slider element-containers (via the st-key
+         * class hook) so the surrounding rows (action buttons, cost
+         * metrics, column headers) stay at default spacing. */
+        [class*="st-key-v_slider_"],
+        [class*="st-key-opt_v_"] {{
+            margin-top: -0.5rem;
             position: relative;
-        }
-        [data-tooltip]:hover::after {
-            content: attr(data-tooltip);
+        }}
+
+        /* Hover tooltip on the constraint-violation icon next to "Your
+         * cost". Uses the same dark-bubble style as the slider tooltips
+         * so the two feel like one family. Content is read from the
+         * data-violation-tooltip attribute the icon's HTML sets. */
+        .diet-violation-icon {{
+            position: relative;
+            display: inline-block;
+        }}
+        .diet-violation-icon:hover::after {{
+            content: attr(data-violation-tooltip);
             position: absolute;
-            left: 50%;
             top: 100%;
+            left: 50%;
             transform: translateX(-50%);
             background: rgba(17, 24, 39, 0.92);
             color: #f9fafb;
             padding: 0.35rem 0.55rem;
             border-radius: 4px;
             font-size: 0.75rem;
-            /* `pre-line` honors explicit \n line breaks in the data-tooltip
-             * string while collapsing other whitespace, so the per-food
-             * tooltip wraps onto two lines after Carb. `width: max-content`
-             * stops the absolutely-positioned pseudo-element from inheriting
-             * the food sub-column's narrow width and breaking on every
-             * space. */
-            white-space: pre-line;
-            width: max-content;
-            text-align: center;
-            line-height: 1.35;
+            white-space: nowrap;
             z-index: 1000;
             pointer-events: none;
-            margin-top: 0.35rem;
-        }
+            margin-top: 0.25rem;
+        }}
+
+        /* Hover tooltip on the user-side slider's element-container.
+         * Replaces the "?" help icon. The content (price + nutrient
+         * density) is set per-food by the rules emitted below. */
+        [class*="st-key-v_slider_"]:hover::after {{
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(17, 24, 39, 0.92);
+            color: #f9fafb;
+            padding: 0.35rem 0.55rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: pre-line;
+            width: max-content;
+            z-index: 1000;
+            pointer-events: none;
+            margin-top: 0.25rem;
+        }}
+        {tooltip_content_css}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
     # Three column body: Your diet (left), nutrient chart (middle), Optimal
-    # diet (right). [4,4,4] gives the chart more horizontal room and pulls
-    # the six slider sub-columns tighter together on each side.
+    # diet (right). Sliders are now horizontal and stacked vertically inside
+    # each side column, in food order top to bottom.
     your_col, chart_col, opt_col = st.columns([4, 4, 4])
 
     with your_col:
         st.markdown("**Your diet**")
-        food_cols = st.columns(len(data["foods"]), gap="small")
-        for c, f in zip(food_cols, data["foods"]):
+        for f in data["foods"]:
             ub = slider_upper_bound(f, data)
-            key = slider_key(f)
-            current = float(st.session_state.get(key, 0.0))
-            with c:
-                # Bound is baked into the component key so a data edit
-                # that recomputes the bound forces a remount; the package's
-                # React state otherwise ignores subsequent `max_value` prop
-                # changes and the slider's visible range stays stale.
-                component_key = f"v_{key}_{ub:g}"
-                vertical_slider(
-                    label=f,
-                    key=component_key,
-                    height=220,
-                    default_value=current,
-                    min_value=0.0,
-                    max_value=float(ub),
-                    step=0.1,
-                    slider_color="#0072B2",
-                    track_color="#E5E9F1",
-                    thumb_color="#0072B2",
-                    value_always_visible=True,
-                )
-                # Mirror the JS-side component value back into the
-                # canonical slider_<food> key. Two wrinkles:
-                #
-                # 1. The package's return value is broken for drags to
-                #    exactly zero (`return val if val else default`), so
-                #    we read the raw component value from session_state
-                #    instead — bypassing that falsy check.
-                # 2. After Set at Optimum, canonical holds the *exact* LP
-                #    x_f (no rounding) so Your cost matches the LP cost
-                #    exactly. The slider's step=0.1 then snaps the JS-
-                #    side value to the nearest grid point (e.g., 1.6
-                #    when canonical is 1.6287). A naive mirror would
-                #    clobber the exact canonical with the snapped grid
-                #    value. So: skip mirror on the rerun fired by Set
-                #    at Optimum (canonical fresh, JS stale), and on
-                #    subsequent reruns only mirror if the JS value
-                #    differs from canonical by more than half a step —
-                #    a real user drag moves at least a full step, so it
-                #    crosses the threshold; the JS-snap of canonical
-                #    does not.
-                raw = st.session_state.get(component_key)
-                if raw is not None and not just_set_at_optimum:
-                    component_val = float(raw)
-                    canonical_val = float(st.session_state.get(key, 0.0))
-                    if abs(component_val - canonical_val) > 0.05:
-                        st.session_state[key] = component_val
+            canonical = slider_key(f)
+            widget_key = slider_widget_key(f)
+            # The slider reads its display value from
+            # `session_state[widget_key]`, which the pre-sync loop above
+            # already populated from the canonical. On user drag,
+            # Streamlit writes the new value to widget_key and fires the
+            # on_change callback, which mirrors widget_key back into the
+            # canonical so other paths (Apply changes, cost computation,
+            # chart bars) see it. max_value updates from a data edit are
+            # picked up naturally each rerun.
+            st.slider(
+                label=f,
+                key=widget_key,
+                min_value=0.0,
+                max_value=float(ub),
+                step=0.1,
+                format="%.1f",
+                on_change=_mirror_user_slider,
+                args=(canonical, widget_key),
+            )
 
     # Read the user sliders and compute the user cost AFTER the left side
     # widgets have written their values back into session_state above.
     slider_vals = current_slider_values()
     user_cost = cost_of(slider_vals, data)
+
+    # Pre-compute nutrient totals + violation flag here so the cost
+    # metric below can render a ⚠ glyph next to the cost number when
+    # any nutrient minimum is missed.
+    #
+    # `violation_eps = 1e-6` is sized purely to absorb solver float
+    # noise on the LP solution itself (19.99999998 vs 20.0) — NOT to
+    # cover slider step rounding. With step=0.1, a user rounding their
+    # picks to the displayed LP value can still be ~0.1 short of a
+    # binding constraint, which is a genuine constraint violation the
+    # user should see (the LP minimum is at the constraint boundary;
+    # rounding down loses feasibility). The ⚠ correctly fires in that
+    # case, telling the user to bump a slider up; widening the eps to
+    # mask it would hide real infeasibility.
+    user_totals = nutrient_totals(slider_vals, data)
+    violation_eps = 1e-6
+    has_violation = any(
+        user_totals[n] < data["needs"][n] - violation_eps for n in NUTRIENTS
+    )
 
     # Decide cost-metric colors once so both columns paint consistently.
     # Green when Your cost meets or beats the LP optimum. Beating it is
@@ -908,20 +1044,38 @@ def render_optimizer_tab():
     # since the LP is a minimization at the constraint boundary; the
     # chart's ⚠ glyph already flags infeasibility separately, so the
     # cost indicator and the feasibility indicator stay orthogonal.
+    #
+    # Both costs are displayed and compared at 1-decimal precision —
+    # the same granularity as the slider step (0.1). This lets the user
+    # drag sliders to displayed LP values and see Your cost match
+    # Optimal cost, instead of being painted red over a sub-dime
+    # rounding gap that the cost numbers also gloss over.
     if optimal and optimal["status"] == "optimal":
         opt_cost = float(optimal["cost"])
-        your_color = "#16a34a" if user_cost <= opt_cost else "#dc2626"
+        your_color = (
+            "#16a34a" if round(user_cost, 1) <= round(opt_cost, 1)
+            else "#dc2626"
+        )
         opt_color = "#16a34a"
-        opt_value = f"{opt_cost:.2f}"
+        opt_value = f"{opt_cost:.1f}"
     else:
         your_color = None
         opt_color = None
         opt_value = "—"
 
-    # Your cost: right-aligned at the bottom of the left column so it
-    # visually pairs with the user slider bank.
-    with your_col:
-        colored_metric("Your cost", f"{user_cost:.2f}", your_color, align="right")
+    # Your cost / Optimal cost get rendered below the chart in the
+    # middle column (see chart_col block below), so they sit under a
+    # fixed-height visual and don't drift down as more foods are added
+    # to the slider banks on either side. The ⚠ glyph is appended to
+    # Your cost when any nutrient minimum is missed — mirrors the
+    # chart's per-nutrient ⚠ marks at a glance-friendly summary scale.
+    violation_icon_html = (
+        '<span class="diet-violation-icon" '
+        'data-violation-tooltip="Constraint violated" '
+        'style="color: #dc2626; margin-left: 0.5rem; font-size: 1.5rem; '
+        'cursor: help; vertical-align: middle;">⚠</span>'
+        if has_violation else ''
+    )
 
     with chart_col:
         # Middle column: grouped bar chart of nutrient totals (You vs
@@ -929,7 +1083,8 @@ def render_optimizer_tab():
         # the four nutrient groups fit in the narrow middle column.
         st.markdown("**Constraints**")
 
-        user_totals = nutrient_totals(slider_vals, data)
+        # user_totals was pre-computed earlier (for the cost-metric
+        # violation glyph). Reusing here.
         rows = [
             {"nutrient": NUTRIENT_LABELS[n], "source": "You", "value": user_totals[n]}
             for n in NUTRIENTS
@@ -1019,12 +1174,10 @@ def render_optimizer_tab():
         # nutrient total falls below the min requirement. Same pattern as
         # the knapsack weight-limit ⚠, in the same red (#dc2626) as the
         # dotted min-requirement rules — the two read as a "constraint /
-        # you violated it" pair. Hover shows the shortfall.
-        # The `- 1e-6` slack absorbs float-precision noise: at the exact
-        # LP optimum, totals can come out to e.g. 19.99999998 instead of
-        # 20.0 due to the solver's 16-digit float arithmetic, and a
-        # strict < check would trigger the glyph at the LP solution.
-        violation_eps = 1e-6
+        # you violated it" pair. Hover shows the shortfall. `violation_eps`
+        # is the same epsilon (1e-6) defined earlier near the cost-metric
+        # violation flag, absorbing float-precision noise so the LP
+        # solution itself doesn't trigger the glyph spuriously.
         violation_rows = [
             {
                 "nutrient": NUTRIENT_LABELS[n],
@@ -1064,278 +1217,90 @@ def render_optimizer_tab():
                 )
             )
 
-        # Chart height matches the slider band visually. The vertical
-        # slider iframe is 298px tall (slider 220 + value badge + max/min
-        # number labels + food name label), so set the chart height to
-        # roughly the same so the bars span the same vertical extent as
-        # the sliders flanking the chart.
+        # Chart height roughly matches the height of the 6-slider stack so
+        # the bars span the same vertical extent as the sliders flanking
+        # the chart. Each native st.slider takes ~70px (label + track +
+        # value indicator + margin), so 6 × ~70 ≈ 420 minus a bit for the
+        # bottom cost metric that sits below the chart.
         if violation_marks is not None:
-            chart = (bars + rules + violation_marks).resolve_scale(color="independent").properties(height=300)
+            chart = (bars + rules + violation_marks).resolve_scale(color="independent").properties(height=400)
         else:
-            chart = (bars + rules).resolve_scale(color="independent").properties(height=300)
+            chart = (bars + rules).resolve_scale(color="independent").properties(height=400)
         st.altair_chart(chart, width="stretch")
 
+        # Cost metrics anchored below the chart (fixed-height block)
+        # rather than at the bottom of the slider columns. This keeps
+        # them at the same vertical position regardless of how many
+        # foods the user adds on the side columns. Left half holds
+        # "Your cost" (left-aligned with the chart's left edge); right
+        # half holds "Optimal cost" (right-aligned to the chart's
+        # right edge).
+        cost_left, cost_right = st.columns([1, 1])
+        with cost_left:
+            colored_metric(
+                "Your cost", f"{user_cost:.1f}", your_color,
+                align="left", suffix_html=violation_icon_html,
+                inset="3rem",
+            )
+        with cost_right:
+            colored_metric(
+                "Optimal cost", opt_value, opt_color,
+                align="right", inset="1.5rem",
+            )
+
     with opt_col:
-        # Right column: always render the 6 sliders. Pre-solve they appear
-        # in gray with value 0; post-solve they switch to green with the
-        # solver's x_f. Pointer events are disabled via the CSS rule above
-        # so they read as informational regardless of state.
+        # Right column: always render the 6 sliders, in the same food
+        # order as the user side. Pre-solve, every slider sits at 0;
+        # post-solve, each shows the LP's x_f. `disabled=True` makes them
+        # read-only (Streamlit ignores drag/keyboard input) so the column
+        # reads as informational regardless of state; the CSS injected
+        # above repaints the thumb amber so the disabled state still
+        # carries the "Optimal" semantic color.
         st.markdown("**Optimal diet**")
-        solved = bool(optimal and optimal["status"] == "optimal")
-        opt_x = optimal["x"] if solved else {}
-        food_cols = st.columns(len(data["foods"]), gap="small")
-        for c, f in zip(food_cols, data["foods"]):
+        # Marker for the CSS rule that paints the optimal sliders amber.
+        # Sits at the top of the column; `:has(.optimal-col-marker)`
+        # selects this stColumn so the rule scopes to its descendants.
+        st.markdown('<div class="optimal-col-marker"></div>', unsafe_allow_html=True)
+        # `solved` and `opt_x` were computed earlier (for the fill CSS).
+        for f in data["foods"]:
             ub = slider_upper_bound(f, data)
             if solved:
-                val = round(max(0.0, min(float(opt_x.get(f, 0.0)), ub)), 1)
-                color = "#E69F00"
+                val = max(0.0, min(float(opt_x.get(f, 0.0)), ub))
             else:
                 val = 0.0
-                color = "#cbd5e1"
-            with c:
-                # Key suffix is the solved/unsolved state, not the value,
-                # so the component remounts only on the first solve (where
-                # we need the gray -> amber color flip). Subsequent value
-                # changes from re-solves are handled by the DOM-poke in
-                # the components.html script, which avoids the iframe
-                # reload flash.
-                vertical_slider(
-                    label=f,
-                    key=f"opt_v_{f}_{'solved' if solved else 'unsolved'}",
-                    height=220,
-                    default_value=val,
-                    min_value=0.0,
-                    max_value=float(ub),
-                    step=0.1,
-                    slider_color=color,
-                    track_color="#E5E9F1",
-                    thumb_color=color,
-                    value_always_visible=True,
-                )
-
-        # Optimal cost: left-aligned at the bottom of the right column so
-        # it visually pairs with the optimal slider bank.
-        colored_metric("Optimal cost", opt_value, opt_color, align="left")
-
-    # Wire up hover tooltips on the USER side and mark the OPTIMAL side
-    # read only. Each user slider's parent food sub-column (stColumn) gets
-    # a `data-tooltip` attribute; the CSS above renders the badge via
-    # `:hover::after`. Each optimal sub-column gets a `data-readonly`
-    # attribute; the CSS above sets pointer-events: none on iframes
-    # underneath. Doing both via JS avoids any extra Streamlit wrapper
-    # elements that would push the right column down (the previous marker
-    # div trick added ~16-32px of offset on the right side).
-    #
-    # Streamlit's markdown sanitizer strips <script>, so we run the
-    # attribute injection inside a same-origin components.html iframe that
-    # reaches into window.parent.document. A MutationObserver re-applies
-    # after every DOM mutation so Streamlit reruns and slider re-mounts
-    # do not lose the attributes.
-    nutrient_label_short = {"P": "Prot", "C": "Carb", "F": "Fat", "V": "Vit"}
-    user_tooltips = []
-    for f in data["foods"]:
-        # Tooltip shows price and nutrient density per unit. Food name is
-        # already visible as the slider's own label so we don't repeat it
-        # here. Split between Carb and Fat so the tooltip is two short
-        # lines instead of one long one. The CSS rule above sets
-        # `white-space: pre-line` so the literal \n is rendered as a break.
-        n_list = list(data["nutrients"])
-        mid = len(n_list) // 2  # 2 for the default [P, C, F, V]
-        line1_parts = [f"${data['price'][f]:g}"] + [
-            f"{nutrient_label_short.get(n, n)} {data['content'][(f, n)]:g}"
-            for n in n_list[:mid]
-        ]
-        line2_parts = [
-            f"{nutrient_label_short.get(n, n)} {data['content'][(f, n)]:g}"
-            for n in n_list[mid:]
-        ]
-        line1 = "  ·  ".join(line1_parts)
-        line2 = "  ·  ".join(line2_parts) + "  per unit"
-        user_tooltips.append(line1 + "\n" + line2)
-
-    # Collect the current canonical slider values; the JS uses these to
-    # DOM-poke the iframes' <input type=range> on a "Set at Optimum" click.
-    optimum_values = [
-        float(st.session_state.get(slider_key(f), 0.0))
-        for f in data["foods"]
-    ]
-    optimum_token = st.session_state.get("set_at_optimum_token", 0)
-
-    # Optimal-side values (the LP solution), used to DOM-poke the right
-    # column's iframes when "Run Optimizer" fires a new solve.
-    if optimal and optimal["status"] == "optimal":
-        optimal_x_values = [
-            round(
-                max(
-                    0.0,
-                    min(
-                        float(optimal["x"].get(f, 0.0)),
-                        slider_upper_bound(f, data),
-                    ),
-                ),
-                1,
+            # Stable widget key (no value stamp). When the LP value
+            # changes, BaseWeb updates the existing component's value
+            # prop and React commits the new gradient + new thumb
+            # transform in the same render pass — no unmount/remount.
+            # A value-stamped key forces a remount on every value
+            # change, which left a frame where the new container had
+            # the new CSS gradient applied but the thumb's inline
+            # transform hadn't been set yet ("bar leads thumb"). The
+            # pre-sync above pins session_state to the LP value, so
+            # this widget always shows the current LP solution.
+            st.slider(
+                label=f,
+                key=f"opt_v_{f}",
+                min_value=0.0,
+                max_value=float(ub),
+                step=0.1,
+                format="%.1f",
             )
-            for f in data["foods"]
-        ]
-    else:
-        optimal_x_values = [0.0] * len(data["foods"])
-    run_token = st.session_state.get("run_optimizer_token", 0)
 
-    components.html(
-        f"""
-        <script>
-        (function() {{
-            var userTooltips = {json.dumps(user_tooltips)};
-            var optimumValues = {json.dumps(optimum_values)};
-            var optimumToken = {json.dumps(optimum_token)};
-            var optimalXValues = {json.dumps(optimal_x_values)};
-            var runToken = {json.dumps(run_token)};
-            var doc = window.parent.document;
-            function disableSelectionInside(iframe) {{
-                // Inject styles into the iframe's own document. Parent-page
-                // CSS does not cross iframe boundaries, so anything that
-                // needs to affect the slider's React-rendered content has
-                // to live here. Two rules:
-                //   1. `user-select: none` everywhere — kills the blue
-                //      selection box when the user drags.
-                //   2. Hide the slider's min-value label. The package
-                //      renders min/max as <label> siblings of the slider
-                //      <span>; `span + label` matches the min label only
-                //      (the max label comes BEFORE the span). visibility:
-                //      hidden keeps its vertical space, so the food-name
-                //      label below it does not shift up onto the thumb.
-                // Idempotent via a marker attribute.
-                try {{
-                    var d = iframe.contentDocument;
-                    if (!d || !d.head || d.querySelector('style[data-diet-iframe]')) return;
-                    var style = d.createElement('style');
-                    style.setAttribute('data-diet-iframe', '1');
-                    style.textContent = (
-                        '* {{ -webkit-user-select: none !important; ' +
-                        '-moz-user-select: none !important; ' +
-                        'user-select: none !important; }} ' +
-                        'span + label {{ visibility: hidden !important; }} ' +
-                        // MUI Slider thumb's blue focus / active ring
-                        // lingers after the programmatic input dispatch
-                        // we use for Set-at-Optimum / Run-Optimizer
-                        // animations. Suppress the box-shadow halo so the
-                        // thumbs don't read as "stuck focused".
-                        '.MuiSlider-thumb, ' +
-                        '.MuiSlider-thumb:hover, ' +
-                        '.MuiSlider-thumb.Mui-focusVisible, ' +
-                        '.MuiSlider-thumb.Mui-active {{ ' +
-                        '  box-shadow: none !important; ' +
-                        '  outline: none !important; ' +
-                        '}}'
-                    );
-                    d.head.appendChild(style);
-                }} catch (e) {{ /* cross-origin or not ready */ }}
-            }}
-            function apply() {{
-                // Iframe order: first 6 are user-side, next 6 are optimal.
-                var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
-                var n = userTooltips.length;
-                for (var i = 0; i < iframes.length; i++) {{
-                    var col = iframes[i].closest('[data-testid="stColumn"]');
-                    if (!col) continue;
-                    if (i < n) {{
-                        col.setAttribute('data-tooltip', userTooltips[i]);
-                    }} else {{
-                        col.setAttribute('data-readonly', '');
-                    }}
-                    disableSelectionInside(iframes[i]);
-                    // Some iframes load late; retry once after a beat.
-                    iframes[i].addEventListener('load', function(e) {{
-                        disableSelectionInside(e.target);
-                    }}, {{ once: true }});
-                }}
-            }}
-            // "Set at Optimum" path: DOM-poke each user-side slider's
-            // underlying <input type=range> to the new value and dispatch
-            // an input event so React picks up the change and animates the
-            // thumb. Without this, the package's React component ignores
-            // the new default_value prop after first mount, and the only
-            // way to move the thumb was to remount the iframe (visible
-            // reload).
-            function applyOptimumValues() {{
-                var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
-                var n = optimumValues.length;
-                for (var i = 0; i < n && i < iframes.length; i++) {{
-                    try {{
-                        var inner = iframes[i].contentDocument;
-                        if (!inner) continue;
-                        var input = inner.querySelector('input[type=range]');
-                        if (!input) continue;
-                        // Use the native setter so React's value-tracker
-                        // sees the change and fires the React onChange
-                        // (a plain `input.value = ...` is shadowed by the
-                        // React-installed setter and is ignored).
-                        var proto = iframes[i].contentWindow.HTMLInputElement.prototype;
-                        var nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                        nativeSetter.call(input, String(optimumValues[i]));
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        // Drop focus so the MUI slider's blue active ring
-                        // doesn't linger on the touched thumbs.
-                        input.blur();
-                    }} catch (e) {{ /* iframe not ready yet */ }}
-                }}
-            }}
-            if (optimumToken > 0
-                && window.parent.__dietOptimumTokenSeen !== optimumToken) {{
-                // First attempt immediately; retry once in case any
-                // iframe hadn't finished loading.
-                applyOptimumValues();
-                setTimeout(applyOptimumValues, 120);
-                window.parent.__dietOptimumTokenSeen = optimumToken;
-            }}
-
-            // "Run Optimizer" path: same DOM-poke technique applied to
-            // the optimal-side iframes (indices N..2N-1). The slider
-            // package's color props don't update after first mount, so
-            // the Python side still remounts on the very first solve
-            // (when the slider goes gray -> amber); after that, value
-            // updates flow through this poke without a reload.
-            function applyOptimalXValues() {{
-                var iframes = doc.querySelectorAll('iframe[src*="streamlit_vertical_slider"]');
-                var n = optimalXValues.length;
-                for (var i = 0; i < n && (i + n) < iframes.length; i++) {{
-                    try {{
-                        var inner = iframes[i + n].contentDocument;
-                        if (!inner) continue;
-                        var input = inner.querySelector('input[type=range]');
-                        if (!input) continue;
-                        var proto = iframes[i + n].contentWindow.HTMLInputElement.prototype;
-                        var nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                        nativeSetter.call(input, String(optimalXValues[i]));
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        input.blur();
-                    }} catch (e) {{ /* iframe not ready yet */ }}
-                }}
-            }}
-            if (runToken > 0
-                && window.parent.__dietRunTokenSeen !== runToken) {{
-                applyOptimalXValues();
-                setTimeout(applyOptimalXValues, 120);
-                window.parent.__dietRunTokenSeen = runToken;
-            }}
-
-            apply();
-            if (window.parent.__dietTooltipObserver) {{
-                window.parent.__dietTooltipObserver.disconnect();
-            }}
-            var timeout;
-            var observer = new MutationObserver(function() {{
-                clearTimeout(timeout);
-                timeout = setTimeout(apply, 50);
-            }});
-            observer.observe(doc.body, {{childList: true, subtree: true}});
-            window.parent.__dietTooltipObserver = observer;
-        }})();
-        </script>
-        """,
-        height=0,
+    # Inject the per-food amber gradient CSS AFTER the slider widgets
+    # ship to the client. Streamlit emits elements in Python source
+    # order; if the gradient CSS is emitted before the optimal sliders,
+    # the new gradient stop ("amber at 45.45%") arrives at the browser
+    # at t≈1.2s after Run Optimizer is clicked, but the slider's new
+    # thumb position arrives at t≈2.4s — leaving a visible second of
+    # "fill at new position, thumb still at old". By emitting the CSS
+    # after the slider widgets, the thumb commits to its new transform
+    # first, then this style update arrives ~0 frames later and just
+    # recolors the inline blue gradient to amber. Thumb and amber-fill
+    # stay aligned the entire time.
+    st.markdown(
+        f"<style>\n{opt_fill_css}\n</style>",
+        unsafe_allow_html=True,
     )
 
 

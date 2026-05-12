@@ -12,3 +12,10 @@ gatherUsageStats = false
 # headless = true is also what the Dockerfile sets at runtime; redundant
 # but explicit, and makes local-dev behavior match production.
 headless = true
+
+[theme]
+# Wong (2011) color-blind-safe blue — drives the active color of native
+# st.slider thumbs and tracks. Matches the "You" series color used in
+# the Constraints chart, so the user-side sliders and the user-side bars
+# read as the same semantic group.
+primaryColor = "#0072B2"
