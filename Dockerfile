@@ -19,8 +19,9 @@ COPY .streamlit/ ./.streamlit/
 # *.griffith-pse.com unfurl as a rich card on LinkedIn / Slack / iMessage.
 RUN STATIC=$(python -c "import streamlit, os; print(os.path.join(os.path.dirname(streamlit.__file__), 'static'))") \
     && sed -i 's|<title>Streamlit</title>|<title>Diet LP Optimizer</title>|' "$STATIC/index.html" \
-    && sed -i 's|</head>|<meta property="og:type" content="website"/><meta property="og:title" content="Diet LP Optimizer"/><meta property="og:description" content="Stigler diet LP: minimum-cost meal plan under nutrient constraints. Pyomo + HiGHS, runs in your browser."/><meta property="og:image" content="https://griffith-pse.com/images/diet.png"/><meta property="og:site_name" content="Griffith PSE"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="Diet LP Optimizer"/><meta name="twitter:description" content="Stigler diet LP: minimum-cost meal plan under nutrient constraints. Pyomo + HiGHS, runs in your browser."/><meta name="twitter:image" content="https://griffith-pse.com/images/diet.png"/></head>|' "$STATIC/index.html" \
-    && cp /app/favicon.png "$STATIC/favicon.png"
+    && sed -i 's|</head>|<link rel="icon" type="image/png" href="./favicon.png"/><meta property="og:type" content="website"/><meta property="og:title" content="Diet LP Optimizer"/><meta property="og:description" content="Stigler diet LP: minimum-cost meal plan under nutrient constraints. Pyomo + HiGHS, runs in your browser."/><meta property="og:image" content="https://griffith-pse.com/images/diet.png"/><meta property="og:site_name" content="Griffith PSE"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="Diet LP Optimizer"/><meta name="twitter:description" content="Stigler diet LP: minimum-cost meal plan under nutrient constraints. Pyomo + HiGHS, runs in your browser."/><meta name="twitter:image" content="https://griffith-pse.com/images/diet.png"/></head>|' "$STATIC/index.html" \
+    && cp /app/favicon.png "$STATIC/favicon.png" \
+    && cp /app/favicon.png "$STATIC/favicon.ico"
 
 # Run as a non-root user. If a future Streamlit (or transitive dep) RCE
 # lands in the container, the attacker doesn't get root. Defense in depth.
