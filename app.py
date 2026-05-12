@@ -729,6 +729,25 @@ def render_optimizer_tab():
                 # is the cost of the diet shown on the sliders — what
                 # the user sees and what they can actually reach.
                 #
+                # PEDAGOGICAL CAVEAT: "Optimal cost" displayed on the
+                # page is therefore the cost of the *step-feasible*
+                # rounded solution, NOT the true LP minimum. On the
+                # default data: ceiling-rounded cost = $24.0, true LP
+                # minimum = $23.71 — about a 1% premium. If you're
+                # walking a student through the LP formulation, point
+                # out that the math optimum is fractional (e.g.
+                # vegetables = 1.6363, bread = 5.4545, eggs = 2.3864)
+                # and the displayed value is the slider-reachable
+                # rounding. The Logs tab still shows HiGHS's exact LP
+                # output for the real numbers; the Formulation tab
+                # documents the continuous LP. This trade was made so
+                # "drag your sliders to match the displayed optimum"
+                # works as advertised (Your cost meets Optimal cost,
+                # no ⚠ violations). Without ceiling-rounding the user
+                # could see the LP value 5.4545 displayed but only
+                # ever drag to 5.4 or 5.5, neither of which matches
+                # the LP cost AND many of which violate constraints.
+                #
                 # `zero_eps` treats sub-1e-6 LP values as exact zeros.
                 # HiGHS sometimes returns tiny positive values like
                 # 1e-12 for variables the LP doesn't want to use;
