@@ -964,6 +964,16 @@ def render_optimizer_tab():
             padding: 0.5rem 0.75rem;
             border-radius: 4px;
             font-size: 0.75rem;
+            /* Pin font metrics explicitly. Without these, the cost-icon
+             * tooltip inherits font-weight: 600 from the parent cost-
+             * number div (the metric value is semibold), making
+             * "Constraint violated" wider than the Vega-tooltip version
+             * which renders at normal weight. line-height: 1 also
+             * inherits from the value div and gives the cost tooltip a
+             * shorter box than Vega's default. */
+            font-family: inherit;
+            font-weight: 400;
+            line-height: 1.2;
             white-space: nowrap;
             z-index: 1000;
             pointer-events: none;
@@ -984,6 +994,12 @@ def render_optimizer_tab():
             padding: 0.5rem 0.75rem !important;
             border-radius: 4px !important;
             font-size: 0.75rem !important;
+            /* Match the cost-icon tooltip's font metrics so text width
+             * and box height are identical between the two. Vega-tooltip
+             * otherwise uses its own font stack and may differ. */
+            font-family: inherit !important;
+            font-weight: 400 !important;
+            line-height: 1.2 !important;
             box-shadow: none !important;
         }}
         /* Vega-tooltip renders every tooltip as a <table> with two columns:
