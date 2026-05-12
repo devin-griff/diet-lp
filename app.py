@@ -1223,11 +1223,16 @@ def render_optimizer_tab():
                     ),
                     y="value:Q",
                     # `status` carries the same "Constraint violated"
-                    # label that the cost-metric ⚠ shows on hover, so
+                    # headline that the cost-metric ⚠ shows on hover, so
                     # every violation icon in the app (cost + per-
-                    # nutrient chart marks) opens with the same headline.
+                    # nutrient chart marks) opens with the same first
+                    # line. Vega-Lite uses the field name as the label
+                    # when `title` is unset, so we override it to a
+                    # single space — that hides the field-name column
+                    # while keeping the "Constraint violated" value
+                    # text on its own line.
                     tooltip=[
-                        alt.Tooltip("status:N", title=None),
+                        alt.Tooltip("status:N", title=" "),
                         alt.Tooltip("nutrient:N"),
                         alt.Tooltip("value:Q", title="Your total", format=".2f"),
                         alt.Tooltip("deficit:Q", title="Short by", format=".1f"),
