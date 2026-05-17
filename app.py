@@ -22,12 +22,15 @@
 #
 # File roadmap:
 #   1. Solver       — model definition + HiGHS log capture.
-#   2. Constants    — defaults, nutrient labels, slider cap.
-#   3. State        — session_state init / reset / slider helpers.
+#   2. Constants    — defaults, nutrient labels, MAX_FOODS, slider cap.
+#   3. State        — session_state init / reset, slider key helpers, user/
+#                     canonical/widget-key mirroring callback.
 #   4. Utilities    — DataFrame <-> internal-dict conversion, totals, cost.
 #   5. LaTeX        — render the current instance as a formatted equation.
-#   6. Tabs         — render_data / render_formulation / render_logs / render_optimizer.
-#   7. Main         — page config and tab assembly at module bottom.
+#   6. Tabs         — render_data_tab / render_formulation_tab /
+#                     render_logs_tab / render_optimizer_tab.
+#   7. Main         — page config, corner-logo CSS, header/caption, four
+#                     tabs assembled at the module bottom.
 # =============================================================================
 
 import base64
@@ -194,9 +197,16 @@ DEFAULT_DATA = {
 #   - data:                the current problem instance (foods/needs/...)
 #   - optimal:             the most recent solver result, or None
 #   - _pending_reset:      one-shot flag to reset on the next run
-#   - slider_<food>:       slider value for each food (the user's diet)
+#   - _bounds_optimal:     cached unconstrained-cost LP, sized per food, used
+#                          to scale slider upper bounds
+#   - slider_<food>:       canonical (non-widget) slider value for each food
+#                          — what cost/chart computations read
+#   - v_slider_<food>:     backing widget key for the user-side slider
+#   - opt_v_<food>:        backing widget key for the optimal-side slider
 #   - need_<nutrient>:     number_input value for each nutrient requirement
 #   - data_editor:         backing key for the data editor widget
+#   - apply_data_btn / reset_data_btn:  Data tab Apply / Reset buttons
+#   - run_btn / set_opt_btn:            Optimizer tab Run / Set-to-optimal
 
 def slider_key(food):
     # Stable, food-keyed CANONICAL identifier. Lives in session_state, drives
@@ -1305,11 +1315,12 @@ def render_optimizer_tab():
                 )
             )
 
-        # Chart height roughly matches the height of the 6-slider stack so
-        # the bars span the same vertical extent as the sliders flanking
-        # the chart. Each native st.slider takes ~70px (label + track +
-        # value indicator + margin), so 6 × ~70 ≈ 420 minus a bit for the
-        # bottom cost metric that sits below the chart.
+        # Fixed chart height of 400px. The default instance has 6 foods,
+        # where each native st.slider takes ~70px (label + track + value
+        # indicator + margin), so 6 × ~70 ≈ 420 spans roughly the same
+        # vertical extent as the slider stack. Foods are user-editable
+        # (up to MAX_FOODS), so for non-default instances the chart and
+        # slider stack heights may diverge.
         if violation_marks is not None:
             chart = (bars + rules + violation_marks).resolve_scale(color="independent").properties(height=400)
         else:
@@ -1337,13 +1348,16 @@ def render_optimizer_tab():
             )
 
     with opt_col:
-        # Right column: always render the 6 sliders, in the same food
-        # order as the user side. Pre-solve, every slider sits at 0;
-        # post-solve, each shows the LP's x_f. `disabled=True` makes them
-        # read-only (Streamlit ignores drag/keyboard input) so the column
-        # reads as informational regardless of state; the CSS injected
-        # above repaints the thumb amber so the disabled state still
-        # carries the "Optimal" semantic color.
+        # Right column: always render one slider per food, in the same
+        # food order as the user side. Pre-solve, every slider sits at 0;
+        # post-solve, each shows the LP's x_f. The widget is rendered
+        # without `disabled=True` (BaseWeb's disabled gradient lags the
+        # thumb on value updates); instead the CSS injected above sets
+        # `pointer-events: none` to block mouse interaction and the pre-
+        # sync loop pins session_state to the LP value so any focused
+        # keyboard arrow snaps back. The same CSS repaints the active
+        # fill and thumb amber so the column still carries the "Optimal"
+        # semantic color.
         st.markdown("**Optimal diet**")
         # Marker for the CSS rule that paints the optimal sliders amber.
         # Sits at the top of the column; `:has(.optimal-col-marker)`
@@ -1399,7 +1413,8 @@ def render_optimizer_tab():
 # up, then assemble the four tabs.
 
 # `set_page_config` must be the first Streamlit call; "wide" layout gives
-# the two-column optimizer enough horizontal room.
+# the three-column optimizer (Your diet | Constraints chart | Optimal diet)
+# enough horizontal room.
 st.set_page_config(page_title="Diet LP Optimizer", page_icon="favicon.png", layout="wide")
 
 # Initialize session_state defaults and apply any pending reset.
