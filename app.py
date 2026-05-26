@@ -658,7 +658,6 @@ $$
             "ERGO group, distributed as a pip wheel via `highspy`."
         )
 
-        st.markdown("**Companion notebook**")
         st.markdown(
             "See the [companion Jupyter notebook]"
             "(https://github.com/devin-griff/diet_lp/blob/main/diet.ipynb) "
