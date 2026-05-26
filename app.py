@@ -682,6 +682,13 @@ $$
             "vol. 10, no. 1, pp. 119–142, 2018. "
             "[Springer](https://link.springer.com/article/10.1007/s12532-017-0130-5)"
         )
+        st.markdown(
+            "[4] M. L. Bynum, G. A. Hackebeil, W. E. Hart, C. D. Laird, "
+            "B. L. Nicholson, J. D. Siirola, J.-P. Watson, and D. L. Woodruff, "
+            "*Pyomo — Optimization Modeling in Python*, 3rd ed. "
+            "Cham: Springer, 2021. "
+            "[Springer](https://link.springer.com/book/10.1007/978-3-030-68928-5)"
+        )
 
     with sub_instance:
         st.markdown(
