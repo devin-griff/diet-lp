@@ -1,5 +1,5 @@
 # Auto-deploy to Fly.io on every push to main.
-# Identical workflow lives in each of the three app repos — each repo has
+# Identical workflow lives in each of the three app repos: each repo has
 # exactly one fly.toml at its root, so this just runs `flyctl deploy` from
 # the checkout root.
 name: Deploy to Fly.io
@@ -7,7 +7,7 @@ name: Deploy to Fly.io
 on:
   push:
     branches: [main]
-    # Skip CI on docs-only changes — README/SETUP edits don't enter the
+    # Skip CI on docs-only changes: README/SETUP edits don't enter the
     # Docker image, so the resulting deploy would be a byte-identical no-op.
     # Use `workflow_dispatch` below to force a deploy if you ever need one.
     paths-ignore:

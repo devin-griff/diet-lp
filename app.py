@@ -1,35 +1,35 @@
 # =============================================================================
-# Diet LP Optimizer — a Streamlit tutorial app.
+# Diet LP Optimizer: a Streamlit tutorial app.
 #
 # This file builds an interactive web app around the classic Stigler-style
 # diet problem: choose how much of each food to buy so that total cost is
 # minimized while every nutrient requirement is met.
 #
-# It is a Linear Program (LP) — variables are continuous, not binary:
+# It is a Linear Program (LP): variables are continuous, not binary:
 #   minimize   sum_f  p_f * x_f                  (cost)
 #   subject to sum_f  D_{f,n} * x_f >= r_n  for all nutrients n
 #              x_f >= 0
 #
 # Library roadmap:
-#   - streamlit  — the UI framework. Each interaction reruns this script
+#   - streamlit : the UI framework. Each interaction reruns this script
 #                  top-to-bottom; persistent values live in `st.session_state`.
-#   - pyomo      — algebraic modeling: sets, params, vars, objective,
+#   - pyomo     : algebraic modeling: sets, params, vars, objective,
 #                  constraints. Continuous (NonNegativeReals) variables here.
-#   - HiGHS      — the LP solver, called via Pyomo's appsi_highs interface.
+#   - HiGHS     : the LP solver, called via Pyomo's appsi_highs interface.
 #                  Ships as a pip wheel (`highspy`).
-#   - pandas     — DataFrame shape for Streamlit's data editor and Altair.
-#   - altair     — grouped bars + horizontal "min requirement" markers.
+#   - pandas    : DataFrame shape for Streamlit's data editor and Altair.
+#   - altair    : grouped bars + horizontal "min requirement" markers.
 #
 # File roadmap:
-#   1. Solver       — model definition + HiGHS log capture.
-#   2. Constants    — defaults, nutrient labels, MAX_FOODS, slider cap.
-#   3. State        — session_state init / reset, slider key helpers, user/
+#   1. Solver      : model definition + HiGHS log capture.
+#   2. Constants   : defaults, nutrient labels, MAX_FOODS, slider cap.
+#   3. State       : session_state init / reset, slider key helpers, user/
 #                     canonical/widget-key mirroring callback.
-#   4. Utilities    — DataFrame <-> internal-dict conversion, totals, cost.
-#   5. LaTeX        — render the current instance as a formatted equation.
-#   6. Tabs         — render_data_tab / render_formulation_tab /
+#   4. Utilities   : DataFrame <-> internal-dict conversion, totals, cost.
+#   5. LaTeX       : render the current instance as a formatted equation.
+#   6. Tabs        : render_data_tab / render_formulation_tab /
 #                     render_logs_tab / render_optimizer_tab.
-#   7. Main         — page config, corner-logo CSS, header/caption, four
+#   7. Main        : page config, corner-logo CSS, header/caption, four
 #                     tabs assembled at the module bottom.
 # =============================================================================
 
@@ -70,7 +70,7 @@ def build_model(data):
     m.price = pyo.Param(m.FOOD, initialize=data["price"])
 
     # Decision variable x_f: how much of each food to buy. Continuous and
-    # non-negative — fractional servings are allowed.
+    # non-negative: fractional servings are allowed.
     m.eaten = pyo.Var(m.FOOD, domain=pyo.NonNegativeReals)
 
     # One nutrient constraint per nutrient n: total nutrient delivered must
@@ -100,7 +100,7 @@ def _solve_capturing(m):
             results = solver.solve(m, tee=True)
         log_text = buf.getvalue()
     except TypeError:
-        # Older Pyomo without capture_fd — fall back to plain stdout capture.
+        # Older Pyomo without capture_fd: fall back to plain stdout capture.
         with capture_output() as buf:
             solver = pyo.SolverFactory("appsi_highs")
             results = solver.solve(m, tee=True)
@@ -113,7 +113,7 @@ def solve(data):
     # caller can stash the result in session_state without holding on to a
     # live Pyomo model.
 
-    # Empty problem — bail before constructing a model with no foods.
+    # Empty problem: bail before constructing a model with no foods.
     if not data["foods"]:
         return {"status": "no_foods", "x": {}, "cost": None, "log": ""}
 
@@ -200,7 +200,7 @@ DEFAULT_DATA = {
 #   - _bounds_optimal:     cached unconstrained-cost LP, sized per food, used
 #                          to scale slider upper bounds
 #   - slider_<food>:       canonical (non-widget) slider value for each food
-#                          — what cost/chart computations read
+#                         : what cost/chart computations read
 #   - v_slider_<food>:     backing widget key for the user-side slider
 #   - opt_v_<food>:        backing widget key for the optimal-side slider
 #   - need_<nutrient>:     number_input value for each nutrient requirement
@@ -211,7 +211,7 @@ DEFAULT_DATA = {
 def slider_key(food):
     # Stable, food-keyed CANONICAL identifier. Lives in session_state, drives
     # cost/chart computation, and is mutated by Apply changes (Data tab),
-    # Set at Optimum, Reset to defaults, and init. NOT a widget key — the
+    # Set at Optimum, Reset to defaults, and init. NOT a widget key: the
     # actual st.slider widget uses `slider_widget_key(f)`.
     return f"slider_{food}"
 
@@ -242,7 +242,7 @@ def init_state():
     if "optimal" not in st.session_state:
         st.session_state.optimal = None
     # Silent LP solve used only to size the sliders (see
-    # `slider_upper_bound`). Not shown to the user — the `optimal` key
+    # `slider_upper_bound`). Not shown to the user: the `optimal` key
     # above still drives the visible Optimal column / chart bars and
     # stays None until the user clicks Run Optimizer.
     if "_bounds_optimal" not in st.session_state:
@@ -333,7 +333,7 @@ def slider_upper_bound(food, data):
     # Slider max for a food. Two layers:
     #
     # 1. Hard ceiling: the smallest amount that single-handedly satisfies
-    #    any one nutrient — anything above this is physically wasteful.
+    #    any one nutrient: anything above this is physically wasteful.
     #    Capped by SLIDER_CAP and floored at 1.0 for visibility.
     bounds = []
     for n in NUTRIENTS:
@@ -346,7 +346,7 @@ def slider_upper_bound(food, data):
         hard_max = float(min(SLIDER_CAP, max(1.0, math.ceil(max(bounds)))))
 
     # 2. Data-aware refinement: when we have a silent LP solve (see
-    #    init_state), give every food the same slider range — twice the
+    #    init_state), give every food the same slider range: twice the
     #    ceiling of the largest LP optimum across all foods. Visually
     #    uniform, and the busiest food's optimum lands at ~50% on its
     #    slider with everyone else sitting lower. Capped by `hard_max`
@@ -447,7 +447,7 @@ def colored_metric(label, value, color, align="left", suffix_html="", inset="0")
     # values (green if your cost equals the optimum, red otherwise).
     # `align` controls text-align so the metric can sit flush against
     # either edge of its column. `suffix_html` is appended inside the
-    # value div after the number — used to drop a constraint-violation
+    # value div after the number: used to drop a constraint-violation
     # ⚠ glyph next to Your cost when the user's diet misses a nutrient
     # minimum. `inset` adds horizontal padding on the side matching
     # `align` so the metric can be nudged inward from the column edge
@@ -684,7 +684,7 @@ $$
         st.markdown(
             "[4] M. L. Bynum, G. A. Hackebeil, W. E. Hart, C. D. Laird, "
             "B. L. Nicholson, J. D. Siirola, J.-P. Watson, and D. L. Woodruff, "
-            "*Pyomo — Optimization Modeling in Python*, 3rd ed. "
+            "*Pyomo: Optimization Modeling in Python*, 3rd ed. "
             "Cham: Springer, 2021. "
             "[Springer](https://link.springer.com/book/10.1007/978-3-030-68928-5)"
         )
@@ -742,14 +742,14 @@ def render_optimizer_tab():
                 # constraints (≥-type), so we ceiling-round, which
                 # only adds slack to the constraint side. The cost is
                 # recomputed from the snapped values so "Optimal cost"
-                # is the cost of the diet shown on the sliders — what
+                # is the cost of the diet shown on the sliders: what
                 # the user sees and what they can actually reach.
                 #
                 # PEDAGOGICAL CAVEAT: "Optimal cost" displayed on the
                 # page is therefore the cost of the *step-feasible*
                 # rounded solution, NOT the true LP minimum. On the
                 # default data: ceiling-rounded cost = $24.0, true LP
-                # minimum = $23.71 — about a 1% premium. If you're
+                # minimum = $23.71: about a 1% premium. If you're
                 # walking a student through the LP formulation, point
                 # out that the math optimum is fractional (e.g.
                 # vegetables = 1.6363, bread = 5.4545, eggs = 2.3864)
@@ -840,7 +840,7 @@ def render_optimizer_tab():
 
     # Per-food hover tooltips: price per unit + nutrient density. Each
     # food's tooltip becomes the `content` of a CSS ::after pseudo-element
-    # that fires on :hover of the slider's element-container — no JS,
+    # that fires on :hover of the slider's element-container: no JS,
     # no iframe. Built once outside the loop so user and optimal sides
     # share text.
     nutrient_label_short = {"P": "Prot", "C": "Carb", "F": "Fat", "V": "Vit"}
@@ -855,7 +855,7 @@ def render_optimizer_tab():
     # Per-food tooltip content rules. Streamlit stamps
     # `st-key-<widget_key>` as a class on every widget's element-
     # container, which gives us a food-stable hook for CSS without any
-    # JS injection. Tooltips fire on the USER side only — the optimal
+    # JS injection. Tooltips fire on the USER side only: the optimal
     # side is read-only and already labelled, so hover info there would
     # be redundant.
     tooltip_rules = []
@@ -880,7 +880,7 @@ def render_optimizer_tab():
     # the same way the blue/gray boundary does on the user side). The
     # gradient stop is set in the *same Streamlit rerun* that BaseWeb
     # places the thumb at its new position, so both arrive on the same
-    # paint frame — no "fill leads thumb" lag like the disabled-slider
+    # paint frame: no "fill leads thumb" lag like the disabled-slider
     # workaround had.
     solved = bool(optimal and optimal["status"] == "optimal")
     opt_x = optimal["x"] if solved else {}
@@ -895,7 +895,7 @@ def render_optimizer_tab():
             pct = 0.0
         wkey = f"opt_v_{f}"
         st.session_state[wkey] = val
-        # Exact class match — widget key is `opt_v_<food>` with no
+        # Exact class match: widget key is `opt_v_<food>` with no
         # trailing value, so the class on the element-container is
         # exactly `st-key-opt_v_<food>`. Using `:has()` on the
         # element-container picks the right one without risking
@@ -915,7 +915,7 @@ def render_optimizer_tab():
         f"""
         <style>
         /* The native st.slider value bubble (floats above each thumb,
-         * follows the thumb position) is the value indicator — same
+         * follows the thumb position) is the value indicator: same
          * pattern as quad-tank. Default Streamlit behavior, no override
          * needed here. */
 
@@ -927,7 +927,7 @@ def render_optimizer_tab():
          * mismatch is the "bar leads thumb" effect right after
          * Set at Optimum / Run Optimizer. With transition:none the
          * thumb snaps to its new transform in the same frame as the
-         * gradient. User-side drag still feels smooth — drag tracking
+         * gradient. User-side drag still feels smooth: drag tracking
          * is mouse-driven, not transition-driven. */
         [data-testid="stSlider"] [role="slider"] {{
             transition: none !important;
@@ -939,7 +939,7 @@ def render_optimizer_tab():
          * Strategy:
          *   - `disabled=False` on the widget so BaseWeb paints the
          *     active-fill gradient + positions the thumb in the SAME
-         *     React render cycle (synced by design — no "fill leads
+         *     React render cycle (synced by design: no "fill leads
          *     thumb" lag).
          *   - Per-food CSS rules below override BaseWeb's blue gradient
          *     with the Wong amber color, keeping BaseWeb's percentage
@@ -992,7 +992,7 @@ def render_optimizer_tab():
             content: attr(data-violation-tooltip);
             position: absolute;
             /* Position the tooltip to the right of (and slightly below)
-             * the icon — same relative location Vega-tooltip uses when
+             * the icon: same relative location Vega-tooltip uses when
              * hovering chart marks (a small offset away from the cursor),
              * instead of dropping straight under the icon where the
              * cursor itself sits. */
@@ -1018,10 +1018,10 @@ def render_optimizer_tab():
 
         /* Vega-tooltip element added to <body> by altair_chart's hover
          * plugin. Default styling is white-bg / dark-text / 6px 12px /
-         * 8px radius / 1px border — completely different from the
+         * 8px radius / 1px border: completely different from the
          * cost-icon tooltip. Overriding both color and box metrics to
          * match (.diet-violation-icon:hover::after above) so a hover on
-         * any ⚠ in the app — cost-side or chart-side — produces a
+         * any ⚠ in the app: cost-side or chart-side: produces a
          * visually identical popup. */
         #vg-tooltip-element.vg-tooltip {{
             background: #000 !important;
@@ -1045,7 +1045,7 @@ def render_optimizer_tab():
          * the Vega tooltip bubble ends up wider than the cost-icon's
          * plain-text bubble. Collapsing the .key column on whitespace-
          * only content would be ideal but CSS can't match text content,
-         * so we collapse it globally — the chart's bar tooltips lose
+         * so we collapse it globally: the chart's bar tooltips lose
          * their field-name labels but still show the values (You / 0.00
          * / Protein), which remain readable in context. */
         #vg-tooltip-element.vg-tooltip td.key {{
@@ -1125,7 +1125,7 @@ def render_optimizer_tab():
     # any nutrient minimum is missed.
     #
     # `violation_eps = 1e-6` is sized purely to absorb solver float
-    # noise on the LP solution itself (19.99999998 vs 20.0) — NOT to
+    # noise on the LP solution itself (19.99999998 vs 20.0): NOT to
     # cover slider step rounding. With step=0.1, a user rounding their
     # picks to the displayed LP value can still be ~0.1 short of a
     # binding constraint, which is a genuine constraint violation the
@@ -1146,7 +1146,7 @@ def render_optimizer_tab():
     # chart's ⚠ glyph already flags infeasibility separately, so the
     # cost indicator and the feasibility indicator stay orthogonal.
     #
-    # Both costs are displayed and compared at 1-decimal precision —
+    # Both costs are displayed and compared at 1-decimal precision -
     # the same granularity as the slider step (0.1). This lets the user
     # drag sliders to displayed LP values and see Your cost match
     # Optimal cost, instead of being painted red over a sub-dime
@@ -1162,13 +1162,13 @@ def render_optimizer_tab():
     else:
         your_color = None
         opt_color = None
-        opt_value = "—"
+        opt_value = "-"
 
     # Your cost / Optimal cost get rendered below the chart in the
     # middle column (see chart_col block below), so they sit under a
     # fixed-height visual and don't drift down as more foods are added
     # to the slider banks on either side. The ⚠ glyph is appended to
-    # Your cost when any nutrient minimum is missed — mirrors the
+    # Your cost when any nutrient minimum is missed: mirrors the
     # chart's per-nutrient ⚠ marks at a glance-friendly summary scale.
     violation_icon_html = (
         '<span class="diet-violation-icon" '
@@ -1274,7 +1274,7 @@ def render_optimizer_tab():
         # Layer 3 (conditional): warning glyph above any "You" bar whose
         # nutrient total falls below the min requirement. Same pattern as
         # the knapsack weight-limit ⚠, in the same red (#dc2626) as the
-        # dotted min-requirement rules — the two read as a "constraint /
+        # dotted min-requirement rules: the two read as a "constraint /
         # you violated it" pair. Hover shows the shortfall. `violation_eps`
         # is the same epsilon (1e-6) defined earlier near the cost-metric
         # violation flag, absorbing float-precision noise so the LP
@@ -1311,8 +1311,8 @@ def render_optimizer_tab():
                         scale=alt.Scale(paddingInner=0),
                     ),
                     y="value:Q",
-                    # Every violation icon in the app — the cost-metric
-                    # ⚠ and these per-nutrient chart marks — shows the
+                    # Every violation icon in the app: the cost-metric
+                    # ⚠ and these per-nutrient chart marks: shows the
                     # same "Constraint violated" tooltip on hover, with
                     # no extra fields. The `title=" "` (single space)
                     # hides Vega-Lite's default field-name column so
@@ -1379,7 +1379,7 @@ def render_optimizer_tab():
             # Stable widget key (no value stamp). When the LP value
             # changes, BaseWeb updates the existing component's value
             # prop and React commits the new gradient + new thumb
-            # transform in the same render pass — no unmount/remount.
+            # transform in the same render pass: no unmount/remount.
             # A value-stamped key forces a remount on every value
             # change, which left a frame where the new container had
             # the new CSS gradient applied but the thumb's inline
@@ -1400,7 +1400,7 @@ def render_optimizer_tab():
     # order; if the gradient CSS is emitted before the optimal sliders,
     # the new gradient stop ("amber at 45.45%") arrives at the browser
     # at t≈1.2s after Run Optimizer is clicked, but the slider's new
-    # thumb position arrives at t≈2.4s — leaving a visible second of
+    # thumb position arrives at t≈2.4s: leaving a visible second of
     # "fill at new position, thumb still at old". By emitting the CSS
     # after the slider widgets, the thumb commits to its new transform
     # first, then this style update arrives ~0 frames later and just
@@ -1429,7 +1429,7 @@ init_state()
 # Tighten the top of the main block so the title sits closer to the page top
 # and the tabs are visible without scrolling. 2.5rem clears the sticky header
 # (running-script spinner + «« sidebar toggle in the top-right) without hiding
-# the title underneath it. Same value used across the template family — see
+# the title underneath it. Same value used across the template family: see
 # griffith-pse-app-template/app.py.
 st.markdown(
     """
@@ -1446,7 +1446,7 @@ st.markdown(
 # site. Same-tab navigation since the user is leaving the demo. Pinned to
 # the upper-left corner of the page via position:fixed so it stays visible
 # while scrolling. Image is embedded from the local favicon.png as a base64
-# data URL — the link still navigates to griffith-pse.com when clicked, but
+# data URL: the link still navigates to griffith-pse.com when clicked, but
 # loading the page itself doesn't make any third-party request.
 _FAVICON_DATA_URL = "data:image/png;base64," + base64.b64encode(
     (Path(__file__).parent / "favicon.png").read_bytes()
@@ -1469,7 +1469,7 @@ st.markdown(
     </style>
     <a href="https://griffith-pse.com" target="_self" class="home-logo-corner">
       <img src="https://griffith-pse.com/images/favicon.png"
-           alt="Griffith PSE — home" />
+           alt="Griffith PSE: home" />
     </a>
     """.replace("https://griffith-pse.com/images/favicon.png", _FAVICON_DATA_URL),
     unsafe_allow_html=True,

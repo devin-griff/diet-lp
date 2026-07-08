@@ -1,6 +1,6 @@
 # Defaults for any Streamlit app cloned from this template.
 # Copying these into the repo means a fresh `streamlit run app.py` works
-# without prompting for an email or printing setup nags — both locally
+# without prompting for an email or printing setup nags: both locally
 # and in the Docker image.
 
 [browser]
@@ -14,7 +14,7 @@ gatherUsageStats = false
 headless = true
 
 [theme]
-# Wong (2011) color-blind-safe blue — drives the active color of native
+# Wong (2011) color-blind-safe blue: drives the active color of native
 # st.slider thumbs and tracks. Matches the "You" series color used in
 # the Constraints chart, so the user-side sliders and the user-side bars
 # read as the same semantic group.
