@@ -660,7 +660,7 @@ $$
 
         st.markdown(
             "See the [companion Jupyter notebook]"
-            "(https://github.com/devin-griff/diet_lp/blob/main/diet.ipynb) "
+            "(https://github.com/devin-griff/diet-lp/blob/main/diet.ipynb) "
             "for the Pyomo implementation."
         )
 
@@ -1477,7 +1477,7 @@ st.markdown(
 st.markdown(
     "<h2 style='margin: 0 0 0.25rem 0; padding: 0; font-size: 1.5rem; font-weight: 700;'>"
     "Diet LP Optimizer "
-    "<a href='https://github.com/devin-griff/diet_lp' target='_blank' "
+    "<a href='https://github.com/devin-griff/diet-lp' target='_blank' "
     "title='View source on GitHub' "
     "style='display: inline-block; vertical-align: 0.02em; margin: 0 0.35rem 0 0.1rem; "
     "color: inherit;'>"
