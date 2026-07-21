@@ -1469,7 +1469,7 @@ st.markdown(
     </style>
     <a href="https://griffith-pse.com" target="_self" class="home-logo-corner">
       <img src="https://griffith-pse.com/images/favicon.png"
-           alt="Griffith PSE: home" />
+           alt="Griffith PSE: home" width="32" height="32" style="width:32px;height:32px;border-radius:4px;display:block" />
     </a>
     """.replace("https://griffith-pse.com/images/favicon.png", _FAVICON_DATA_URL),
     unsafe_allow_html=True,
